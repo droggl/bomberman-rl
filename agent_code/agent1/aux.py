@@ -4,9 +4,43 @@ from queue import Queue
 import settings as s
 
 
+def bomb_field(field, bombs):
+    """
+    Draw a map of spots threatened by bombs.
+    no bomb = -1, else value = bomb countdown
+
+    :param field: Board
+    :param bombs: Bomb positions
+    """
+    (width, heigth) = np.shape(field)
+
+    danger_field = np.full((width, heigth), -1)
+
+    for ((x,y), countdown) in bombs:
+        danger_field[x,y] = countdown
+        i = 1
+        while i <= s.BOMB_POWER and field[x+i, y] != -1:
+            danger_field[x+i,y] = countdown
+            i = i + 1
+        i = 1
+        while i <= s.BOMB_POWER and field[x, y+i] != -1:
+            danger_field[x,y+i] = countdown
+            i = i+1
+        i = 1
+        while i <= s.BOMB_POWER and field[x-i, y] != -1:
+            danger_field[x-i,y] = countdown
+            i = i+1
+        i = 1
+        while i <= s.BOMB_POWER and field[x, y-i] != -1:
+            danger_field[x,y-i] = countdown
+            i = i+1
+        
+    return danger_field
+
+
 def danger_rating(field, danger_field, explosion_map, start_pos, deadly):
     """
-    Find shortest path from start pos to 'safe' (not thretened by bomb) field and returns distance.
+    Find shortest path from start pos to 'safe' (not threatened by bomb) field and returns distance.
     Returns deadly if field itself is or not safe field can be reached.
 
     Used for survival_instinst().
@@ -73,27 +107,7 @@ def survival_instinct(field, bombs, explosion_map, player_pos):
 
     danger = np.full(5, -1)
 
-    # draw bomb explosion areas into map, value is countdown timer
-    (width, heigth) = np.shape(field)
-    danger_field = np.full((width, heigth), -1)
-    for ((x,y), countdown) in bombs:
-        danger_field[x,y] = countdown
-        i = 1
-        while i <= s.BOMB_POWER and field[x+i, y] != -1:
-            danger_field[x+i,y] = countdown
-            i = i + 1
-        i = 1
-        while i <= s.BOMB_POWER and field[x, y+i] != -1:
-            danger_field[x,y+i] = countdown
-            i = i+1
-        i = 1
-        while i <= s.BOMB_POWER and field[x-i, y] != -1:
-            danger_field[x-i,y] = countdown
-            i = i+1
-        i = 1
-        while i <= s.BOMB_POWER and field[x, y-i] != -1:
-            danger_field[x,y-i] = countdown
-            i = i+1
+    danger_field = bomb_field(field, bombs)
 
     # danger value for instadeath
     # TODO: evaluate good value
@@ -242,8 +256,7 @@ def coin_collector(field, coins, player_pos):
     Feature designed to help collecting coins.
 
     First 4 are 1 if direction on shortest path to coin and 0 else.
-    TODO: refine by giving remaining steps to coin after move for each direction?
-    TODO: incorporate distance?
+    See also coin_distance().
 
     5h value is amount of boxes bomb would destroy.
 
@@ -305,46 +318,47 @@ def coin_collector(field, coins, player_pos):
 
     return action_values
 
-
-
-def simple_features(field, bombs, explosion_map, coins, player_pos):
+def traversible(field, bombs, explosion_map, player_pos):
     """
-    Simple features to test training methods. Local awareness
+    Feature informing whether adjacent fields can/should be visited or not.
+    1 = no, 0 = yes
+
+    :param field: Board
+    :param bombs: Bomb positions
+    :param explosion_map: Explosion_positions
+    :param player_pos: Player position
     """
+
     (x,y) = player_pos
 
-    (width, heigth) = np.shape(field)
-
-    bomb_field = np.full((width, heigth), -1)
-
-    for ((x,y), countdown) in bombs:
-        bomb_field[x,y] = countdown
-        i = 1
-        while i <= s.BOMB_POWER and field[x+i, y] != -1:
-            bomb_field[x+i,y] = countdown
-        i = 1
-        while i <= s.BOMB_POWER and field[x-i, y] != -1:
-            bomb_field[x-i,y] = countdown
-        i = 1
-        while i <= s.BOMB_POWER and field[x, y+i] != -1:
-            bomb_field[x,y+i] = countdown
-        i = 1
-        while i <= s.BOMB_POWER and field[x+i, y-i] != -1:
-            bomb_field[x,y-i] = countdown
+    danger_field = bomb_field(bombs)
 
     # fields where you can't/really shouldn't go
     traversible = np.zeros(4)
-    if field[x+1, y] != 0 or explosion_map[x+1, y] > 1 or bomb_field[x+1, y] == 1:
+    if field[x+1, y] != 0 or explosion_map[x+1, y] > 1 or danger_field[x+1, y] != -1:
         traversible[0] = 1
-    if field[x-1, y] != 0 or explosion_map[x-1, y] > 1 or bomb_field[x-1, y] == 1:
+    if field[x-1, y] != 0 or explosion_map[x-1, y] > 1 or danger_field[x-1, y] != -1:
         traversible[1] = 1
-    if field[x, y+1] != 0 or explosion_map[x, y+1] > 1 or bomb_field[x, y+1] == 1:
+    if field[x, y+1] != 0 or explosion_map[x, y+1] > 1 or danger_field[x, y+1] != -1:
         traversible[2] = 1
-    if field[x, y-1] != 0 or explosion_map[x, y-1] > 1 or bomb_field[x, y-1] == 1:
+    if field[x, y-1] != 0 or explosion_map[x, y-1] > 1 or danger_field[x, y-1] != -1:
         traversible[3] = 1
 
-    # where crate
+    return traversible
+
+def cratos(field, player_pos):
+    """
+    Feature informing whether adjacent fields contain crates.
+    1 = yes, 0 = no
+
+    :param field: Board
+    :param player_pos: Player position
+    """
+
+    (x,y) = player_pos
+
     crates = np.zeros(4)
+
     if field[x+1,y] == 1:
         crates[0] = 1
     if field[x-1, y] == 1:
@@ -354,6 +368,4 @@ def simple_features(field, bombs, explosion_map, coins, player_pos):
     if field[x, y-1] == 1:
         crates[4] = 1
 
-    features = np.concatenate(traversible, crates)
-    
-    return features
+    return crates
