@@ -1,21 +1,27 @@
 from collections import namedtuple, deque
+from xmlrpc.client import Boolean
 
+import numpy as np
+from sklearn.ensemble import GradientBoostingRegressor as GBR
 import pickle
+import time
 from typing import List
 
 import events as e
-from .callbacks import state_to_features
+from .callbacks import state_to_features, ACTIONS
+from .aux import coin_collector2, survival_instinct
+
+import agent_code.agent1.train_params as tparam
 
 # This is only an example!
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
-# Hyper parameters -- DO modify
-TRANSITION_HISTORY_SIZE = 3  # keep only ... last transitions
-RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
-
 # Events
-PLACEHOLDER_EVENT = "PLACEHOLDER"
+COIN_POS = "COIN_POS"
+COIN_NEG = "COIN_NEG"
+BOMB_POS = "BOMB_POS"
+BOMB_NEG = "BOMB_NEG"
 
 
 def setup_training(self):
@@ -28,7 +34,8 @@ def setup_training(self):
     """
     # Example: Setup an array that will note transition tuples
     # (s, a, r, s')
-    self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
+    self.transitions = deque(maxlen=tparam.TRANSITION_HISTORY_SIZE)
+    self.rho = tparam.RHO_START
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -50,9 +57,32 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     """
     self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
 
-    # Idea: Add your own events to hand out rewards
-    if ...:
-        events.append(PLACEHOLDER_EVENT)
+    if old_game_state is not None and new_game_state is not None:
+        
+        #### Coin finder rewards ####
+        coin_old = coin_collector2(old_game_state["field"], old_game_state["coins"], old_game_state["self"][3])
+        coin_new = coin_collector2(new_game_state["field"], new_game_state["coins"], new_game_state["self"][3])
+
+        old_max = np.max(coin_old[0:4])
+        new_max = np.max(coin_new[0:4])
+        # print(old_max, new_max)
+
+        # check if agent moved closer to coin
+        if new_max > old_max:
+            events.append(COIN_POS)
+        elif new_max < old_max:
+            events.append(COIN_NEG)
+
+        #### bomb evasion rewards ####
+        bomb_old = survival_instinct(old_game_state["field"], old_game_state["bombs"], old_game_state["explosion_map"], old_game_state["self"][3])
+        bomb_new = survival_instinct(new_game_state["field"], new_game_state["bombs"], new_game_state["explosion_map"], new_game_state["self"][3])
+
+        # check if agent went to field with lower danger
+        if bomb_new[4] < bomb_old[4]:
+            events.append(BOMB_POS)
+        elif bomb_new[4] > bomb_old[4]:
+            events.append(BOMB_NEG)
+        
 
     # state_to_features is defined in callbacks.py
     self.transitions.append(Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
@@ -72,10 +102,90 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     :param self: The same object that is passed to all of your callbacks.
     """
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
-    self.transitions.append(Transition(state_to_features(last_game_state), last_action, None, reward_from_events(self, events)))
+    last_features = state_to_features(last_game_state)
+    D = len(last_features)
+    self.transitions.append(Transition(last_features, last_action, None, reward_from_events(self, events)))
+
+    t_0 = time.time()
+    # number of buffered transitions
+    n = len(self.transitions)
+
+    # transfer transition queue to numpy
+
+    last_arr = np.empty((n,D))
+    action_arr = np.empty(n, dtype=np.int8)
+    next_arr = np.empty((n, D))
+    reward_arr = np.empty(n)
+
+    missing_next = []
+    missing_last = []
+
+    for (i, (last, action, next, reward)) in enumerate(self.transitions):
+        # missing next state treatment
+        if next is None:
+            # placeholder next
+            next_arr[i] = np.zeros(tparam.FEATURE_LEN)
+            # remember
+            missing_next.append(i)
+        else:
+            next_arr[i] = next
+
+        # missing last state treatment
+        if last is None:
+            last_arr[i] = np.zeros(tparam.FEATURE_LEN)
+            missing_last.append(i)
+
+        # translate action to integer enumeration
+        if action == "UP":
+            action_arr[i] = 0
+        elif action == "RIGHT":
+            action_arr[i] = 1
+        elif action == "DOWN":
+            action_arr[i] = 2
+        elif action == "LEFT":
+            action_arr[i] = 3
+        elif action == "WAIT":
+            action_arr[i] = 4
+        elif action == "BOMB":
+            action_arr[i] = 5
+        
+        last_arr[i] = last
+        reward_arr[i] = reward
+
+    # evaluate current estimators for Q
+    Q_pred = []
+    for i in range(6):
+        Q_pred.append(self.model[i].predict(next_arr))
+
+    # compute expectation Y
+    Q_max = np.amax(np.stack(Q_pred), axis = 0)
+
+    # missing next -> no expected future reward
+    for i in missing_next:
+        Q_max[i] = 0
+
+    # missing last -> ignore
+    # TODO better idea?
+    for i in missing_last:
+        action_arr[i] = 6
+
+    # compute expectation Y
+    Y = reward_arr + tparam.GAMMA * Q_max
+
+    # update Q estimators 
+    for i in range(6):
+        mask = (action_arr == i)
+        if sum(mask) > 0:
+            self.model[i] = GBR(n_estimators=tparam.N_EST, learning_rate=tparam.LEARN_RATE).fit(last_arr[mask], Y[mask])
+    t_1 = time.time()
+
+    self.logger.info("Model update (ms): {}".format((t_1-t_0) * 1000))
+
+    with open("./logs/round_length", "a") as file:
+        file.write(str(last_game_state["step"]) + " ")
 
     # Store the model
-    with open("my-saved-model.pt", "wb") as file:
+    with open(tparam.MODEL_NAME, "wb") as file:
         pickle.dump(self.model, file)
 
 
@@ -89,7 +199,14 @@ def reward_from_events(self, events: List[str]) -> int:
     game_rewards = {
         e.COIN_COLLECTED: 1,
         e.KILLED_OPPONENT: 5,
-        PLACEHOLDER_EVENT: -.1  # idea: the custom event is bad
+        e.KILLED_SELF: -5,
+        e.CRATE_DESTROYED: 0.5,
+        e.INVALID_ACTION: -0.5,
+        e.WAITED: -0.5,
+        COIN_POS: .1,
+        COIN_NEG: -.1,
+        BOMB_POS: .5,
+        BOMB_NEG: -.5
     }
     reward_sum = 0
     for event in events:

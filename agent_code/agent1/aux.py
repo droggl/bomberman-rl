@@ -241,7 +241,7 @@ def coin_collector2(field, coins, player_pos):
         if field[x-1,y] == 0:
             coin_rating[2] = coin_distance(field, coins, (x-1, y))
         if field[x,y-1] == 0:
-            coin_rating[4] = coin_distance(field, coins, (x, y-1))
+            coin_rating[3] = coin_distance(field, coins, (x, y-1))
 
     # TODO evaluate whether 1 / dist is a good idea
     coin_rating[coin_rating != 0] = 1 / coin_rating[coin_rating != 0]
@@ -268,7 +268,7 @@ def coin_collector(field, coins, player_pos):
     action_values = np.zeros(5)
 
     # BFS for shortest path to coin if coin exists
-    if len(coins) != 0:
+    if len(coins) >  0:
         # parent direction is given by index 0..3 counterclockwise
         dir_offset_x = [1, 0, -1, 0]
         dir_offset_y = [0, 1, 0, -1]
@@ -331,15 +331,15 @@ def traversible(field, bombs, explosion_map, player_pos):
 
     (x,y) = player_pos
 
-    danger_field = bomb_field(bombs)
+    danger_field = bomb_field(field, bombs)
 
     # fields where you can't/really shouldn't go
     traversible = np.zeros(4)
     if field[x+1, y] != 0 or explosion_map[x+1, y] > 1 or danger_field[x+1, y] != -1:
         traversible[0] = 1
-    if field[x-1, y] != 0 or explosion_map[x-1, y] > 1 or danger_field[x-1, y] != -1:
-        traversible[1] = 1
     if field[x, y+1] != 0 or explosion_map[x, y+1] > 1 or danger_field[x, y+1] != -1:
+        traversible[1] = 1
+    if field[x-1, y] != 0 or explosion_map[x-1, y] > 1 or danger_field[x-1, y] != -1:
         traversible[2] = 1
     if field[x, y-1] != 0 or explosion_map[x, y-1] > 1 or danger_field[x, y-1] != -1:
         traversible[3] = 1
