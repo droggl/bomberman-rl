@@ -3,10 +3,10 @@ import os
 import pickle
 import random
 import time
-from sklearn.ensemble import GradientBoostingRegressor as GBR
-
 import numpy as np
+
 from .aux import coin_collector, coin_collector2, survival_instinct, traversible
+from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
 import agent_code.agent1.train_params as tparam
 
 
@@ -27,24 +27,18 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    # set up new model
-    if tparam.RESET == True or not os.path.isfile(tparam.MODEL_NAME):
-        self.logger.info("Setting up model \"{}\" from scratch.".format(tparam.MODEL_NAME))
-
-        # init model with trivial values
-        # TODO evaluate init
-        dummy_X = np.zeros(tparam.FEATURE_LEN).reshape((1,-1))
-        dummy_y = np.zeros(1)
-        self.model = []
-        for i in range(6):
-            self.model.append(GBR(n_estimators=tparam.N_EST, learning_rate=tparam.LEARN_RATE).fit(dummy_X, dummy_y))
-    # use existing model 
-    else: 
-        self.logger.info("Loading model \"{}\" from saved state.".format(tparam.MODEL_NAME))
-        with open(tparam.MODEL_NAME, "rb") as file:
-            self.model = pickle.load(file)
-
-    self.rho_play = 0.1
+    # if not training
+    if not self.train:
+        # try to load model
+        if os.path.isfile(tparam.MODEL_NAME):
+            self.logger.info("Loading model \"{}\" from saved state.".format(tparam.MODEL_NAME))
+            with open(tparam.MODEL_NAME, "rb") as file:
+                self.model_current = pickle.load(file)
+        else:
+            ...
+            # TODO fix this mess 
+        
+        self.rho_play = 0.1
 
 def act(self, game_state: dict) -> str:
     """
@@ -63,7 +57,7 @@ def act(self, game_state: dict) -> str:
     # Query model
     Q_pred = np.empty(6)
     for i in range(6):
-        Q_pred[i] = self.model[i].predict(X.reshape(1,-1))
+        Q_pred[i] = self.model_current[i].predict(X.reshape(1,-1))
     t_2 = time.time()
 
     self.logger.info("Feature / Model / Total (ms): {}  {}  {}".format((t_1-t_0) * 1000, (t_2-t_1) * 1000, (t_2-t_0) * 1000))

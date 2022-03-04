@@ -2,15 +2,18 @@ from collections import namedtuple, deque
 from xmlrpc.client import Boolean
 
 import numpy as np
-from sklearn.ensemble import GradientBoostingRegressor as GBR
 import pickle
 import time
+import os
 from typing import List
+
+from sklearn.ensemble import GradientBoostingRegressor as GBR
 
 import events as e
 from .callbacks import state_to_features, ACTIONS
-from .aux import coin_collector2, survival_instinct
 
+from .aux import coin_collector2, survival_instinct
+from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
 import agent_code.agent1.train_params as tparam
 
 # This is only an example!
@@ -36,6 +39,27 @@ def setup_training(self):
     # (s, a, r, s')
     self.transitions = deque(maxlen=tparam.TRANSITION_HISTORY_SIZE)
     self.rho = tparam.RHO_START
+    self.episode_number = 0
+
+    # set up new model
+    if tparam.RESET == True or not os.path.isfile(tparam.MODEL_NAME):
+        self.logger.info("Setting up model \"{}\" from scratch.".format(tparam.MODEL_NAME))
+
+        # init current model
+        # TODO evaluate init
+        self.model_current = []
+        for i in range(6):
+            self.model_current.append(ogbr(GBR, tparam.RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE))
+    # load existing model
+    else:
+        self.logger.info("Loading model \"{}\" from saved state.".format(tparam.MODEL_NAME))
+        with open(tparam.MODEL_NAME, "rb") as file:
+            self.model_current = pickle.load(file)
+
+    # init new model
+    self.model_new = []
+    for i in range(6):
+        self.model_new.append(ogbr(GBR, tparam.RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE))
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -82,7 +106,6 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
             events.append(BOMB_POS)
         elif bomb_new[4] > bomb_old[4]:
             events.append(BOMB_NEG)
-        
 
     # state_to_features is defined in callbacks.py
     self.transitions.append(Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
@@ -106,7 +129,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     D = len(last_features)
     self.transitions.append(Transition(last_features, last_action, None, reward_from_events(self, events)))
 
-    t_0 = time.time()
+    t_0 = time.time() # timing
+
     # number of buffered transitions
     n = len(self.transitions)
 
@@ -155,7 +179,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     # evaluate current estimators for Q
     Q_pred = []
     for i in range(6):
-        Q_pred.append(self.model[i].predict(next_arr))
+        Q_pred.append(self.model_current[i].predict(next_arr))
 
     # compute expectation Y
     Q_max = np.amax(np.stack(Q_pred), axis = 0)
@@ -176,17 +200,30 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     for i in range(6):
         mask = (action_arr == i)
         if sum(mask) > 0:
-            self.model[i] = GBR(n_estimators=tparam.N_EST, learning_rate=tparam.LEARN_RATE).fit(last_arr[mask], Y[mask])
-    t_1 = time.time()
+            self.model_new[i].fit_update(last_arr[mask], Y[mask])
 
+    # replace current model with new after CYCLE_TIME iterations
+    self.episode_number = self.episode_number + 1
+
+    if self.episode_number % tparam.CYCLE_TIME == 0:
+        self.logger.info("Replacing model.")
+
+        # replace current with new and fresh init new
+        for i in range(6):
+            self.model_current[i] = self.model_new[i]
+            self.model_new[i] = ogbr(GBR, tparam.RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE)
+
+    # timing
+    t_1 = time.time()
     self.logger.info("Model update (ms): {}".format((t_1-t_0) * 1000))
 
-    with open("./logs/round_length", "a") as file:
-        file.write(str(last_game_state["step"]) + " ")
+    # additional logging
+    # with open("./logs/round_length", "a") as file:
+        # file.write(str(last_game_state["step"]) + " ")
 
     # Store the model
     with open(tparam.MODEL_NAME, "wb") as file:
-        pickle.dump(self.model, file)
+        pickle.dump(self.model_current, file)
 
 
 def reward_from_events(self, events: List[str]) -> int:
@@ -201,7 +238,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.KILLED_OPPONENT: 5,
         e.KILLED_SELF: -5,
         e.CRATE_DESTROYED: 0.5,
-        e.INVALID_ACTION: -0.5,
+        e.INVALID_ACTION: -1,
         e.WAITED: -0.5,
         COIN_POS: .1,
         COIN_NEG: -.1,

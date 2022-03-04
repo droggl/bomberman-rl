@@ -4,7 +4,7 @@
 MODEL_NAME="testing.pt"
 
 # creates a new model each time if True
-RESET = False
+RESET = True
 
 # length of the feature vector
 # TODO can we get rid of this?
@@ -25,12 +25,19 @@ TRANSITION_HISTORY_SIZE = 400
 # softmax rho starting value
 RHO_START = 2
 
-# learning rate
+# rate
 GAMMA = 0.9
 
 
 ###### Gradient Boosting Regression parameters ######
 
+# number of estimators used
+CYCLE_TIME = 10
+
+# learning rate
+RATE = 0.2
+
+### Weak Estimator parameters ###
 # see sklearn reference
-N_EST = 50
-LEARN_RATE = 0.2
+WEAK_N_EST = 50
+WEAK_RATE = 0.2
