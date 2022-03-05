@@ -5,7 +5,8 @@ import random
 import time
 import numpy as np
 
-from .aux import coin_collector, coin_collector2, survival_instinct, traversible
+from .aux import coin_collector, coin_collector2, survival_instinct, \
+not_traversible, crate_potential
 from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
 import agent_code.agent1.train_params as tparam
 
@@ -91,16 +92,25 @@ def state_to_features(game_state: dict) -> np.array:
     if game_state is None:
         return None
 
+    field = game_state["field"]
+    bombs = game_state["bombs"]
+    explosion_map = game_state["explosion_map"]
+    coins = game_state["coins"]
+    player_pos = game_state["self"][3]
+    others = game_state["others"]
+    
+
     channels = []
     # local awareness navigation helper
-    channels.append(traversible(game_state["field"], game_state["bombs"], game_state["explosion_map"], game_state["self"][3]))
+    channels.append(not_traversible(field, bombs, explosion_map, others, player_pos))
+    channels.append(crate_potential(field, player_pos))
 
     # bomb avoidance
-    channels.append(survival_instinct(game_state["field"], game_state["bombs"], game_state["explosion_map"], game_state["self"][3]))
+    channels.append(survival_instinct(field, bombs, explosion_map, others, player_pos))
 
     # coin finder
-    channels.append(coin_collector2(game_state["field"], game_state["coins"], game_state["self"][3]))
-    # channels.append(coin_collector(game_state["field"], game_state["coins"], game_state["self"][3]))
+    channels.append(coin_collector2(field, coins, player_pos))
+    # channels.append(coin_collector(field, coins, player_pos))
 
     # concatenate channels
     concatenated_channels = np.concatenate(channels)

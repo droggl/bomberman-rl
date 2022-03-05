@@ -82,14 +82,27 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
 
     if old_game_state is not None and new_game_state is not None:
+
+        old_field = old_game_state["field"]
+        old_bombs = old_game_state["bombs"]
+        old_explosion_map = old_game_state["explosion_map"]
+        old_coins = old_game_state["coins"]
+        old_player_pos = old_game_state["self"][3]
+        old_others = old_game_state["others"]
+
+        new_field = new_game_state["field"]
+        new_bombs = new_game_state["bombs"]
+        new_explosion_map = new_game_state["explosion_map"]
+        new_coins = new_game_state["coins"]
+        new_player_pos = new_game_state["self"][3]
+        new_others = new_game_state["others"]
         
         #### Coin finder rewards ####
-        coin_old = coin_collector2(old_game_state["field"], old_game_state["coins"], old_game_state["self"][3])
-        coin_new = coin_collector2(new_game_state["field"], new_game_state["coins"], new_game_state["self"][3])
+        coin_old = coin_collector2(old_field, old_coins, old_player_pos)
+        coin_new = coin_collector2(new_field, new_coins, new_player_pos)
 
         old_max = np.max(coin_old[0:4])
         new_max = np.max(coin_new[0:4])
-        # print(old_max, new_max)
 
         # check if agent moved closer to coin
         if new_max > old_max:
@@ -98,8 +111,8 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
             events.append(COIN_NEG)
 
         #### bomb evasion rewards ####
-        bomb_old = survival_instinct(old_game_state["field"], old_game_state["bombs"], old_game_state["explosion_map"], old_game_state["self"][3])
-        bomb_new = survival_instinct(new_game_state["field"], new_game_state["bombs"], new_game_state["explosion_map"], new_game_state["self"][3])
+        bomb_old = survival_instinct(old_field, old_bombs, old_explosion_map, old_others, old_player_pos)
+        bomb_new = survival_instinct(new_field, new_bombs, new_explosion_map, new_others, new_player_pos)
 
         # check if agent went to field with lower danger
         if bomb_new[4] < bomb_old[4]:
