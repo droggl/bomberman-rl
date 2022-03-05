@@ -17,8 +17,10 @@ from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
 import agent_code.agent1.train_params as tparam
 
 # This is only an example!
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
+Step = namedtuple('Step',
+                    ('state', 'action', 'reward'))
+N_Transition = namedtuple('Transition',
+                        ('state', 'action', 'final_state', 'acc_reward'))
 
 # Events
 COIN_POS = "COIN_POS"
@@ -35,9 +37,12 @@ def setup_training(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    # Example: Setup an array that will note transition tuples
-    # (s, a, r, s')
+    # Setup an array that will note transition tuples
     self.transitions = deque(maxlen=tparam.TRANSITION_HISTORY_SIZE)
+
+    # Init buffer for n-step Q-Learning
+    self.transition_buffer = deque(maxlen=tparam.Q_STEPS)
+
     self.rho = tparam.RHO_START
     self.episode_number = 0
 
@@ -56,7 +61,7 @@ def setup_training(self):
         with open(tparam.MODEL_NAME, "rb") as file:
             self.model_current = pickle.load(file)
 
-    # init new model
+    # init new(replacement) model
     self.model_new = []
     for i in range(6):
         self.model_new.append(ogbr(GBR, tparam.RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE))
@@ -80,6 +85,8 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
     """
     self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
+
+    #### Rewards ####
 
     if old_game_state is not None and new_game_state is not None:
 
@@ -120,8 +127,27 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         elif bomb_new[4] > bomb_old[4]:
             events.append(BOMB_NEG)
 
-    # state_to_features is defined in callbacks.py
-    self.transitions.append(Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
+    #### N-step Q-Learning ####
+
+    old_features = state_to_features(old_game_state)
+
+    # if state buffer is full
+    if len(self.transition_buffer) == tparam.Q_STEPS:
+        # get oldest from queue
+        (state, action, reward) = self.transition_buffer.popleft()
+
+        # accumulate reward
+        gamma = tparam.Q_RATE
+        for (f_state, f_action, f_reward) in self.transition_buffer:
+            reward = reward + gamma * f_reward
+            gamma = tparam.Q_RATE * gamma
+
+        # add to transitions (training set)
+        self.transitions.append(N_Transition(state, action, old_features, reward))
+
+    # add new state to buffer
+    self.transition_buffer.append(Step(old_features, self_action, reward_from_events(self, events)))
+
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -138,38 +164,60 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     :param self: The same object that is passed to all of your callbacks.
     """
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
-    last_features = state_to_features(last_game_state)
-    D = len(last_features)
-    self.transitions.append(Transition(last_features, last_action, None, reward_from_events(self, events)))
 
     t_0 = time.time() # timing
+ 
+    #### empty transition buffer ####
+
+    last_features = state_to_features(last_game_state)
+
+    # add transition for last state-action
+    # NOTE: Out of order
+    self.transitions.append(N_Transition(last_features, last_action, None, reward_from_events(self, events)))
+
+    while len(self.transition_buffer) > 0:
+        # get oldest from queue
+        (state, action, reward) = self.transition_buffer.popleft()
+
+        # accumulate reward
+        gamma = tparam.Q_RATE
+        for (f_state, f_action, f_reward) in self.transition_buffer:
+            reward = reward + gamma * f_reward
+            gamma = tparam.Q_RATE * gamma
+
+        # add to transitions (training set)
+        self.transitions.append(N_Transition(state, action, last_features, reward))
+        last_features = None
+
+
+    #### prepare training data ####
 
     # number of buffered transitions
     n = len(self.transitions)
 
     # transfer transition queue to numpy
 
-    last_arr = np.empty((n,D))
+    state_arr = np.empty((n,tparam.FEATURE_LEN))
     action_arr = np.empty(n, dtype=np.int8)
-    next_arr = np.empty((n, D))
+    final_arr = np.empty((n, tparam.FEATURE_LEN))
     reward_arr = np.empty(n)
 
     missing_next = []
     missing_last = []
 
-    for (i, (last, action, next, reward)) in enumerate(self.transitions):
+    for (i, (state, action, final, reward)) in enumerate(self.transitions):
         # missing next state treatment
-        if next is None:
+        if final is None:
             # placeholder next
-            next_arr[i] = np.zeros(tparam.FEATURE_LEN)
+            final_arr[i] = np.zeros(tparam.FEATURE_LEN)
             # remember
             missing_next.append(i)
         else:
-            next_arr[i] = next
+            final_arr[i] = final
 
         # missing last state treatment
-        if last is None:
-            last_arr[i] = np.zeros(tparam.FEATURE_LEN)
+        if state is None:
+            state_arr[i] = np.zeros(tparam.FEATURE_LEN)
             missing_last.append(i)
 
         # translate action to integer enumeration
@@ -186,34 +234,36 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         elif action == "BOMB":
             action_arr[i] = 5
         
-        last_arr[i] = last
+        state_arr[i] = state
         reward_arr[i] = reward
 
-    # evaluate current estimators for Q
+    # evaluate current estimators for Q(final)
     Q_pred = []
     for i in range(6):
-        Q_pred.append(self.model_current[i].predict(next_arr))
+        Q_pred.append(self.model_current[i].predict(final_arr))
 
     # compute expectation Y
     Q_max = np.amax(np.stack(Q_pred), axis = 0)
 
-    # missing next -> no expected future reward
+    # missing final -> no expected future reward
     for i in missing_next:
         Q_max[i] = 0
 
-    # missing last -> ignore
+    # missing state -> ignore
     # TODO better idea?
     for i in missing_last:
         action_arr[i] = 6
 
     # compute expectation Y
-    Y = reward_arr + tparam.GAMMA * Q_max
+    Y = reward_arr + tparam.Q_RATE**tparam.Q_STEPS * Q_max
+
+    #### Update Q estimators ####
 
     # update Q estimators 
     for i in range(6):
         mask = (action_arr == i)
         if sum(mask) > 0:
-            self.model_new[i].fit_update(last_arr[mask], Y[mask])
+            self.model_new[i].fit_update(state_arr[mask], Y[mask])
 
     # replace current model with new after CYCLE_TIME iterations
     self.episode_number = self.episode_number + 1
