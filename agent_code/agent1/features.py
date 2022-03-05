@@ -7,32 +7,32 @@ import settings as s
 def bomb_field(field, bombs):
     """
     Draw a map of spots threatened by bombs.
-    no bomb = -1, else value = bomb countdown
+    no bomb = 10, else value = bomb countdown
 
     :param field: Board
     :param bombs: Bomb positions
     """
     (width, heigth) = np.shape(field)
 
-    bomb_map = np.full((width, heigth), -1)
+    bomb_map = np.full((width, heigth), 10)
 
     for ((x,y), countdown) in bombs:
         bomb_map[x,y] = countdown
         i = 1
         while i <= s.BOMB_POWER and field[x+i, y] != -1:
-            bomb_map[x+i,y] = countdown
+            bomb_map[x+i,y] = min(countdown, bomb_map[x+i, y])
             i = i + 1
         i = 1
         while i <= s.BOMB_POWER and field[x, y+i] != -1:
-            bomb_map[x,y+i] = countdown
+            bomb_map[x,y+i] = min(countdown, bomb_map[x, y+i])
             i = i+1
         i = 1
         while i <= s.BOMB_POWER and field[x-i, y] != -1:
-            bomb_map[x-i,y] = countdown
+            bomb_map[x-i,y] = min(countdown, bomb_map[x-i, y])
             i = i+1
         i = 1
         while i <= s.BOMB_POWER and field[x, y-i] != -1:
-            bomb_map[x,y-i] = countdown
+            bomb_map[x,y-i] = min(countdown, bomb_map[x, y-i])
             i = i+1
         
     return bomb_map
@@ -47,7 +47,6 @@ def danger_rating(field, bomb_map, explosion_map, start_pos, deadly):
     Used for survival_instinst().
     """
     # default high value if start_pos is deadly
-    # TODO figure out if explosion map isnt already safe if < 2
     if bomb_map[start_pos] == 0 or explosion_map[start_pos] > 0:
         return deadly
     # else find shortest path to safety
@@ -57,26 +56,26 @@ def danger_rating(field, bomb_map, explosion_map, start_pos, deadly):
         parents = np.full((width, heigth), -1)
         # setup BFS FIFO
         q = Queue()
-        q.put((start_pos, 0))
+        q.put((start_pos, 1))
 
         shortest_dist = deadly
 
         while not q.empty():
             (pos, dist) = q.get()
             # limit search depth
-            if dist > s.BOMB_TIMER:
+            if dist > s.BOMB_TIMER + 1:
                 break
             # already visited
             if parents[pos] > -1:
                 continue
             parents[pos] = 0
             # found safe field
-            if bomb_map[pos] == -1:
-                shortest_dist = dist
+            if bomb_map[pos] == 10:
+                shortest_dist = dist - 1
                 break
 
             viable = lambda x, y: (
-                field[x, y] == 0 and            # field does not contain wall or crate
+                field[x, y] == 0 and        # field does not contain wall or crate
                 (bomb_map[x, y] > dist or   # not exploded yet
                 bomb_map[x, y] < dist - 1   # already faded
                 )
@@ -109,27 +108,25 @@ def survival_instinct(field, bombs, explosion_map, others, player_pos):
     :param player_pos: Player position
     """
     # nothing to do if no bomb present
-    if len(bombs) < 1:
-        return np.zeros(5)
-
-    danger = np.full(5, -1)
-
-    bomb_map = bomb_field(field, bombs)
+    danger = np.full(6, -1)
 
     # danger value for instadeath
-    # TODO: evaluate good value
-    deadly = s.BOMB_POWER + 1
+    # TODO: find good value
+    deadly = s.BOMB_POWER + 2
 
     (x,y) = player_pos
+
+    bomb_map = bomb_field(field, bombs)
 
     other_pos = []
     for player in others:
         other_pos.append(player[3])
 
     viable = lambda x, y: (
-        field[x,y] == 0 and     # field does not contain wall or crate
+        field[x,y] == 0 and         # field does not contain wall or crate
         not (x,y) in other_pos      # field not blocked by other player 
     )
+
     # bfs to find safety for each neighbour
     if viable(x+1, y):
         danger[0] = danger_rating(field, bomb_map, explosion_map, (x+1, y), deadly)
@@ -140,19 +137,17 @@ def survival_instinct(field, bombs, explosion_map, others, player_pos):
     if viable(x, y-1):
         danger[3] = danger_rating(field, bomb_map, explosion_map, (x, y-1), deadly)
 
-    # if current pos is threatened
-    if bomb_map[player_pos] != -1:
-        if any(danger > -1):
-            danger[4] = np.min(danger[danger > -1]) + 1
-        else:
-            danger[4] = 1
-    else:
-        danger[4] = 0
+    # waited
+    danger[4] = danger_rating(field, bomb_map, explosion_map, player_pos, deadly)
+
+    # dropped bomb
+    bomb_map = bomb_field(field, bombs + [(player_pos, 4)])
+    danger[5] = danger_rating(field, bomb_map, explosion_map, player_pos, deadly)
 
     # not viable moves have same danger as staying
     danger[danger == -1] = danger[4]
 
-    return danger / (deadly + 1)
+    return danger / deadly
 
 
 def crate_potential(field, player_pos):
@@ -167,27 +162,27 @@ def crate_potential(field, player_pos):
     (x,y) = player_pos
 
     # go in each direction and count crates
-    i = 0
+    i = 1
     while i <= s.BOMB_POWER and field[x+i, y] != -1:
         if field[x+i, y] == 1:
             crates = crates + 1
         i = i+1
-    i = 0
+    i = 1
     while i <= s.BOMB_POWER and field[x, y+i] != -1:
         if field[x, y+i] == 1:
             crates = crates + 1
         i = i+1
-    i = 0
+    i = 1
     while i <= s.BOMB_POWER and field[x-i, y] != -1:
         if field[x-i, y] == 1:
             crates = crates + 1
         i = i+1
-    i = 0
+    i = 1
     while i <= s.BOMB_POWER and field[i, y-i] != -1:
         if field[x, y-i] == 1:
             crates = crates + 1
         i = i+1
-
+        
     # normalize
     return np.array(crates / 4 / s.BOMB_POWER).reshape((1))
 

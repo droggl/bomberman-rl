@@ -5,8 +5,7 @@ import random
 import time
 import numpy as np
 
-from .aux import coin_collector, coin_collector2, survival_instinct, \
-not_traversible, crate_potential
+from .aux import *
 from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
 import agent_code.agent1.train_params as tparam
 
@@ -39,7 +38,7 @@ def setup(self):
             ...
             # TODO fix this mess 
         
-        self.rho_play = 0.1
+        self.rho_play = 0.2
 
 def act(self, game_state: dict) -> str:
     """
@@ -103,14 +102,13 @@ def state_to_features(game_state: dict) -> np.array:
     channels = []
     # local awareness navigation helper
     channels.append(not_traversible(field, bombs, explosion_map, others, player_pos))
-    channels.append(crate_potential(field, player_pos))
 
     # bomb avoidance
     channels.append(survival_instinct(field, bombs, explosion_map, others, player_pos))
 
     # coin finder
     channels.append(coin_collector2(field, coins, player_pos))
-    # channels.append(coin_collector(field, coins, player_pos))
+    channels.append(crate_potential(field, player_pos))
 
     # concatenate channels
     concatenated_channels = np.concatenate(channels)

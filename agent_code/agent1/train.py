@@ -12,7 +12,7 @@ from sklearn.ensemble import GradientBoostingRegressor as GBR
 import events as e
 from .callbacks import state_to_features, ACTIONS
 
-from .aux import coin_collector2, survival_instinct
+from .aux import *
 from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
 import agent_code.agent1.train_params as tparam
 
@@ -54,7 +54,7 @@ def setup_training(self):
         # TODO evaluate init
         self.model_current = []
         for i in range(6):
-            self.model_current.append(ogbr(GBR, tparam.RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE))
+            self.model_current.append(ogbr(GBR, tparam.GB_RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE))
     # load existing model
     else:
         self.logger.info("Loading model \"{}\" from saved state.".format(tparam.MODEL_NAME))
@@ -64,7 +64,7 @@ def setup_training(self):
     # init new(replacement) model
     self.model_new = []
     for i in range(6):
-        self.model_new.append(ogbr(GBR, tparam.RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE))
+        self.model_new.append(ogbr(GBR, tparam.GB_RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE))
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -124,7 +124,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         # check if agent went to field with lower danger
         if bomb_new[4] < bomb_old[4]:
             events.append(BOMB_POS)
-        elif bomb_new[4] > bomb_old[4]:
+        if bomb_new[4] > bomb_old[4]:
             events.append(BOMB_NEG)
 
     #### N-step Q-Learning ####
@@ -274,7 +274,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         # replace current with new and fresh init new
         for i in range(6):
             self.model_current[i] = self.model_new[i]
-            self.model_new[i] = ogbr(GBR, tparam.RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE)
+            self.model_new[i] = ogbr(GBR, tparam.GB_RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE)
 
     # timing
     t_1 = time.time()
@@ -297,16 +297,16 @@ def reward_from_events(self, events: List[str]) -> int:
     certain behavior.
     """
     game_rewards = {
-        e.COIN_COLLECTED: 1,
+        e.COIN_COLLECTED: 2,
         e.KILLED_OPPONENT: 5,
         e.KILLED_SELF: -5,
-        e.CRATE_DESTROYED: 0.5,
+        e.CRATE_DESTROYED: 1,
         e.INVALID_ACTION: -1,
         e.WAITED: -0.5,
-        COIN_POS: .1,
-        COIN_NEG: -.1,
-        BOMB_POS: .5,
-        BOMB_NEG: -.5
+        COIN_POS: .5,
+        COIN_NEG: -.5,
+        BOMB_POS: .1,
+        BOMB_NEG: -.1
     }
     reward_sum = 0
     for event in events:
