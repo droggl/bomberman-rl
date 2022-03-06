@@ -5,7 +5,7 @@ import random
 import time
 import numpy as np
 
-from .aux import *
+from .features import *
 from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
 import agent_code.agent1.train_params as tparam
 

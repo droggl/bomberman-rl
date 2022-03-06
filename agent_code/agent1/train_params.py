@@ -8,7 +8,7 @@ RESET = False
 
 # length of the feature vector
 # TODO can we get rid of this?
-FEATURE_LEN = 14
+FEATURE_LEN = 15
 
 
 ###### Q Learning parameters ######
@@ -16,7 +16,7 @@ FEATURE_LEN = 14
 # transition buffer size
 TRANSITION_HISTORY_SIZE = 400
 
-# Q steps
+# Q steps (normal Q learning = 1)
 Q_STEPS = 1
 
 # Q rate
@@ -35,9 +35,10 @@ RHO_START = 2
 CYCLE_TIME = 10
 
 # learning rate
-RATE = 0.2
+GB_RATE = 0.2
 
 ### Weak Estimator parameters ###
+
 # see sklearn reference
 WEAK_N_EST = 50
 WEAK_RATE = 0.2
