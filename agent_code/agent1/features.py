@@ -329,10 +329,10 @@ def coin_collector(field, coins, player_pos):
 
     return action_values
 
-def not_traversible(field, bombs, explosion_map, others, player_pos):
+def traversible(field, bombs, explosion_map, others, player_pos):
     """
-    Feature informing whether adjacent fields visited (without instantly dying) or not.
-    1 = no, 0 = yes
+    Feature informing whether adjacent fields can bevisited (without instantly dying) or not.
+    1 = yes, 0 = no
 
     :param field: Board
     :param bombs: bomb data
@@ -353,10 +353,10 @@ def not_traversible(field, bombs, explosion_map, others, player_pos):
 
     # conditions on traversability
     condition = lambda x,y: float(
-        field[x, y] != 0 or             # field is wall or crate
-        explosion_map[x, y] > 0 or      # field contains explosion
-        (x,y) in other_pos or           # field contains player
-        bomb_map[x,y] == 0              # field is threatened by bomb in next turn
+        field[x, y] == 0                # field is not wall or crate
+        and explosion_map[x, y] == 0    # field does not contain explosion
+        and (x,y) not in other_pos      # field does not contain player
+        and bomb_map[x,y] != 0          # field is not threatened by bomb in next turn
     )
 
     # one value for each neighboring field
@@ -367,6 +367,33 @@ def not_traversible(field, bombs, explosion_map, others, player_pos):
     traversible[3] = condition(x, y-1)
 
     return traversible
+
+def traversible_extended(field, player_pos):
+    """
+    Feature informing whether additional fields are contain wall/crate or not.
+    Works same as traversible(), but contains more fields.
+    1 = yes, 0 = no
+
+    :param field: Board
+    :param player_pos: Player position
+    """
+
+    (x,y) = player_pos
+
+    # conditions on traversability
+    condition = lambda x,y: float(
+        field[x, y] == 0                # field is not wall or crate
+    )
+
+    # one value for each field around player
+    traversible = np.zeros(4)
+    traversible[0] = condition(x+1, y+1)
+    traversible[1] = condition(x-1, y+1)
+    traversible[2] = condition(x-1, y-1)
+    traversible[3] = condition(x+1, y-1)
+
+    return traversible
+
 
 def cratos(field, player_pos):
     """

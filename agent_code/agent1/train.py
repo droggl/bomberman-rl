@@ -15,6 +15,7 @@ from .callbacks import state_to_features, ACTIONS
 from .features import *
 from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
 import agent_code.agent1.train_params as tparam
+from .stat_recorder import stat_recorder
 
 # This is only an example!
 Step = namedtuple('Step',
@@ -65,6 +66,9 @@ def setup_training(self):
     self.model_new = []
     for i in range(6):
         self.model_new.append(ogbr(GBR, tparam.GB_RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE))
+
+
+    self.defect = stat_recorder("./logs/defect.log", tparam.RESET)
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -195,6 +199,10 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     # number of buffered transitions
     n = len(self.transitions)
 
+    # wait for buffer to fill
+    if tparam.BUFFER_CLEAR and n < tparam.TRANSITION_HISTORY_SIZE:
+        return
+
     # transfer transition queue to numpy
 
     state_arr = np.empty((n,tparam.FEATURE_LEN))
@@ -257,6 +265,19 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     # compute expectation Y
     Y = reward_arr + tparam.Q_RATE**tparam.Q_STEPS * Q_max
 
+
+    #### model performance logging
+    acc = 0
+    count = 0
+    for i in range(6):
+        mask = (action_arr == i)
+        count = count + sum(mask)
+        if sum(mask) > 0:
+            defect = Y[mask] - self.model_current[i].predict(state_arr[mask])
+            acc = acc + np.sum(np.square(defect))
+    self.defect.write(str(acc / count))
+
+
     #### Update Q estimators ####
 
     # update Q estimators 
@@ -280,9 +301,9 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     t_1 = time.time()
     self.logger.info("Model update (ms): {}".format((t_1-t_0) * 1000))
 
-    # additional logging
-    # with open("./logs/round_length", "a") as file:
-        # file.write(str(last_game_state["step"]) + " ")
+    # clear transition buffer
+    if tparam.BUFFER_CLEAR:
+        self.transitions.clear()
 
     # Store the model
     with open(tparam.MODEL_NAME, "wb") as file:
@@ -300,7 +321,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.COIN_COLLECTED: 2,
         e.KILLED_OPPONENT: 5,
         e.KILLED_SELF: -5,
-        e.CRATE_DESTROYED: 1,
+        e.CRATE_DESTROYED: 0.5,
         e.INVALID_ACTION: -1,
         e.WAITED: -0.5,
         COIN_POS: .5,

@@ -8,6 +8,7 @@ import numpy as np
 from .features import *
 from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
 import agent_code.agent1.train_params as tparam
+from .stat_recorder import stat_recorder
 
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
@@ -39,6 +40,8 @@ def setup(self):
             # TODO fix this mess 
         
         self.rho_play = 0.2
+    
+    self.timing = stat_recorder("./logs/timing.log")
 
 def act(self, game_state: dict) -> str:
     """
@@ -60,23 +63,28 @@ def act(self, game_state: dict) -> str:
         Q_pred[i] = self.model_current[i].predict(X.reshape(1,-1))
     t_2 = time.time()
 
-    self.logger.info("Feature / Model / Total (ms): {}  {}  {}".format((t_1-t_0) * 1000, (t_2-t_1) * 1000, (t_2-t_0) * 1000))
+    # self.logger.info("Feature / Model / Total (ms): {}  {}  {}".format((t_1-t_0) * 1000, (t_2-t_1) * 1000, (t_2-t_0) * 1000))
 
     # train using softmax
-    # TODO improved epsilon-greedy from lecture?
     # TODO implement rho annealing
     if self.train:
-        Q_pred = np.exp(Q_pred / self.rho)
-        p_decision = Q_pred / np.sum(Q_pred)
-        self.logger.debug("Softmax choice, p = " + np.array_str(p_decision))
-        # print(p_decision)
-        return np.random.choice(ACTIONS, p=p_decision)
-    # play using greedy
+        # use sofmax with probability 1 - EPSILON
+        if np.random.rand() > tparam.EPSILON:
+            p_decision = np.exp(Q_pred / self.rho)
+        # otherwise uniform
+        else:
+            p_decision = np.array([1, 1, 1, 1, 1, 1])
+    # play using sofmax with low rho
     else: 
-        Q_pred = np.exp(Q_pred / self.rho_play)
-        p_decision = Q_pred / np.sum(Q_pred)
-        self.logger.info("Softmax choice, p = " + np.array_str(p_decision))
-        return np.random.choice(ACTIONS, p=p_decision)
+        p_decision = np.exp(Q_pred / self.rho_play)
+
+    p_decision = p_decision / np.sum(p_decision)
+
+    self.logger.info("Deciding with p = " + np.array_str(p_decision))
+
+    self.timing.write("{}, {}\n".format(t_1 - t_0, t_2 - t_1))
+
+    return np.random.choice(ACTIONS, p=p_decision)
 
 
 def state_to_features(game_state: dict) -> np.array:
@@ -95,19 +103,24 @@ def state_to_features(game_state: dict) -> np.array:
     bombs = game_state["bombs"]
     explosion_map = game_state["explosion_map"]
     coins = game_state["coins"]
-    player_pos = game_state["self"][3]
+    self = game_state["self"]
+    player_pos = self[3]
     others = game_state["others"]
     
 
     channels = []
     # local awareness navigation helper
-    channels.append(not_traversible(field, bombs, explosion_map, others, player_pos))
+    channels.append(traversible(field, bombs, explosion_map, others, player_pos))
+    channels.append(traversible_extended(field, player_pos))
+
+    # self status
+    channels.append(np.array([self[2]]))
 
     # bomb avoidance
     channels.append(survival_instinct(field, bombs, explosion_map, others, player_pos))
 
     # coin finder
-    channels.append(coin_collector2(field, coins, player_pos))
+    channels.append(coin_collector(field, coins, player_pos))
     channels.append(crate_potential(field, player_pos))
 
     # concatenate channels
