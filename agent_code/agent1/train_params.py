@@ -4,7 +4,7 @@
 MODEL_NAME="testing.pt"
 
 # creates a new model each time if True
-RESET = True
+RESET = False
 
 # length of the feature vector
 # TODO can we get rid of this?
