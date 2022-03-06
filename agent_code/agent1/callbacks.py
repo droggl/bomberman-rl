@@ -37,11 +37,11 @@ def setup(self):
                 self.model_current = pickle.load(file)
         else:
             ...
-            # TODO fix this mess 
-        
+            # TODO fix this mess
+
         self.rho_play = 0.2
-    
-    self.timing = stat_recorder("./logs/timing.log")
+
+        self.timing = stat_recorder("./logs/timing.log")
 
 def act(self, game_state: dict) -> str:
     """
@@ -56,14 +56,12 @@ def act(self, game_state: dict) -> str:
     t_0 = time.time()
     X = state_to_features(game_state)
     t_1 = time.time()
-    
+
     # Query model
     Q_pred = np.empty(6)
     for i in range(6):
         Q_pred[i] = self.model_current[i].predict(X.reshape(1,-1))
     t_2 = time.time()
-
-    # self.logger.info("Feature / Model / Total (ms): {}  {}  {}".format((t_1-t_0) * 1000, (t_2-t_1) * 1000, (t_2-t_0) * 1000))
 
     # train using softmax
     # TODO implement rho annealing
@@ -75,14 +73,15 @@ def act(self, game_state: dict) -> str:
         else:
             p_decision = np.array([1, 1, 1, 1, 1, 1])
     # play using sofmax with low rho
-    else: 
+    else:
         p_decision = np.exp(Q_pred / self.rho_play)
 
     p_decision = p_decision / np.sum(p_decision)
 
     self.logger.info("Deciding with p = " + np.array_str(p_decision))
 
-    self.timing.write("{}, {}\n".format(t_1 - t_0, t_2 - t_1))
+    if not self.train:
+        self.timing.write("{}, {}\n".format(t_1 - t_0, t_2 - t_0))
 
     return np.random.choice(ACTIONS, p=p_decision)
 
@@ -106,21 +105,25 @@ def state_to_features(game_state: dict) -> np.array:
     self = game_state["self"]
     player_pos = self[3]
     others = game_state["others"]
-    
+
 
     channels = []
+
     # local awareness navigation helper
     channels.append(traversible(field, bombs, explosion_map, others, player_pos))
     channels.append(traversible_extended(field, player_pos))
 
     # self status
-    channels.append(np.array([self[2]]))
+    channels.append(np.array([self[2]]))    # bomb readyness
 
     # bomb avoidance
     channels.append(survival_instinct(field, bombs, explosion_map, others, player_pos))
 
     # coin finder
-    channels.append(coin_collector(field, coins, player_pos))
+    channels.append(coin_collector3(field, coins, player_pos))
+
+    # crate destruction
+    channels.append(crate_finder(field, player_pos))
     channels.append(crate_potential(field, player_pos))
 
     # concatenate channels

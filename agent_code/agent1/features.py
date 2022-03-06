@@ -34,7 +34,7 @@ def bomb_field(field, bombs):
         while i <= s.BOMB_POWER and field[x, y-i] != -1:
             bomb_map[x,y-i] = min(countdown, bomb_map[x, y-i])
             i = i+1
-        
+
     return bomb_map
 
 
@@ -124,7 +124,7 @@ def survival_instinct(field, bombs, explosion_map, others, player_pos):
 
     viable = lambda x, y: (
         field[x,y] == 0 and         # field does not contain wall or crate
-        not (x,y) in other_pos      # field not blocked by other player 
+        not (x,y) in other_pos      # field not blocked by other player
     )
 
     # bfs to find safety for each neighbour
@@ -182,9 +182,10 @@ def crate_potential(field, player_pos):
         if field[x, y-i] == 1:
             crates = crates + 1
         i = i+1
-        
+
     # normalize
     return np.array(crates / 4 / s.BOMB_POWER).reshape((1))
+
 
 def coin_distance(field, coins, pos):
     """
@@ -223,7 +224,7 @@ def coin_distance(field, coins, pos):
             distance = dist
             break
 
-        # traverse 
+        # traverse
         (x,y) = pos
         if field[x+1, y] == 0:
             q.put(((x+1,y), dist+1))
@@ -235,6 +236,49 @@ def coin_distance(field, coins, pos):
             q.put(((x,y-1), dist+1))
 
     return distance
+
+def coin_collector3(field, coins, player_pos):
+    """
+    Feature to find coins.
+
+    One value for each direction, 1 if going there reduces distance to crate and 0 else.
+
+    :param field: Board
+    :param coins: Coin positions
+    :param player_pos: Player pos
+    """
+    if len(coins) == 0:
+        return np.zeros(4)
+
+    (x, y) = player_pos
+
+    distance = np.zeros(4)
+
+    viable = lambda x, y: (
+        field[x,y] == 0         # no wall or crate
+    )
+
+    # bfs to find nearest for each neighbour
+    if viable(x+1, y):
+        distance[0] = coin_distance(field, coins, (x+1, y))
+    if viable(x, y+1):
+        distance[1] = coin_distance(field, coins, (x, y+1))
+    if viable(x-1, y):
+        distance[2] = coin_distance(field, coins, (x-1, y))
+    if viable(x, y-1):
+        distance[3] = coin_distance(field, coins, (x, y-1))
+    
+    # distance to nearest coin from current
+    curr_dist = coin_distance(field, coins, player_pos)
+
+    to_coin = np.zeros(4)
+
+    for i in range(4):
+        if distance[i] > 0 and distance[i] < curr_dist:
+            to_coin[i] = 1
+
+    return to_coin
+
 
 def coin_collector2(field, coins, player_pos):
     """
@@ -382,7 +426,7 @@ def traversible_extended(field, player_pos):
 
     # conditions on traversability
     condition = lambda x,y: float(
-        field[x, y] == 0                # field is not wall or crate
+        field[x, y] == 0       # field is not wall or crate
     )
 
     # one value for each field around player
@@ -393,6 +437,95 @@ def traversible_extended(field, player_pos):
     traversible[3] = condition(x+1, y-1)
 
     return traversible
+
+
+
+def crate_distance(field, start_pos):
+    """
+    Distance to closest crate.
+
+    :param field: Board
+    :param start_pos: Start pos for search
+    """
+    distance = 0
+
+    # setup parent matrix
+    dim = np.shape(field)
+    parents = np.full(dim, -1)
+
+    # setup BFS fifo
+    q = Queue()
+    q.put((start_pos, 1))
+
+    while not q.empty():
+        (pos, dist) = q.get()
+        # max search depth
+        # if dist > max:
+        #     break
+
+        # already visited
+        if parents[pos] > -1:
+            continue
+        parents[pos] = 0
+
+        # found coin
+        if field[pos] == 1:
+            distance = dist
+            break
+
+        # traverse
+        (x,y) = pos
+        if field[x+1, y] != -1:
+            q.put(((x+1,y), dist+1))
+        if field[x, y+1] != -1:
+            q.put(((x,y+1), dist+1))
+        if field[x-1, y] != -1:
+            q.put(((x-1,y), dist+1))
+        if field[x, y-1] != -1:
+            q.put(((x,y-1), dist+1))
+
+    return distance
+
+def crate_finder(field, player_pos):
+    """
+    Feature to find crates.
+
+    One value for each direction, 1 if going there reduces distance to crate and 0 else.
+
+    :param field: Board
+    :param player_pos: Player pos
+    """
+    if not np.any(field == 1):
+        return np.zeros(4)
+
+    (x, y) = player_pos
+
+    distance = np.zeros(4)
+
+    viable = lambda x, y: (
+        field[x,y] == 0         # no wall or crate
+    )
+
+    # bfs to find nearest crate for each neighbour
+    if viable(x+1, y):
+        distance[0] = crate_distance(field, (x+1, y))
+    if viable(x, y+1):
+        distance[1] = crate_distance(field, (x, y+1))
+    if viable(x-1, y):
+        distance[2] = crate_distance(field, (x-1, y))
+    if viable(x, y-1):
+        distance[3] = crate_distance(field, (x, y-1))
+    
+    # distance to nearest crate from current pos
+    curr_dist = crate_distance(field, player_pos)
+
+    to_crate = np.zeros(4)
+
+    for i in range(4):
+        if distance[i] > 0 and distance[i] < curr_dist:
+            to_crate[i] = 1
+
+    return to_crate
 
 
 def cratos(field, player_pos):

@@ -12,8 +12,8 @@ SCENARIOS = {
         "COIN_COUNT": 50
     },
     "more-coins": {
-        "CRATE_DENSITY": 0.75,
-        "COIN_COUNT": 17
+        "CRATE_DENSITY": 0.25,
+        "COIN_COUNT": 18
     },
     # This is the tournament game mode
     "classic": {

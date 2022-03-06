@@ -28,6 +28,8 @@ COIN_POS = "COIN_POS"
 COIN_NEG = "COIN_NEG"
 BOMB_POS = "BOMB_POS"
 BOMB_NEG = "BOMB_NEG"
+CRATE_NEG = "CRATE_NEG"
+CRATE_POS = "CRATE_POS"
 
 
 def setup_training(self):
@@ -109,16 +111,12 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         new_others = new_game_state["others"]
         
         #### Coin finder rewards ####
-        coin_old = coin_collector2(old_field, old_coins, old_player_pos)
-        coin_new = coin_collector2(new_field, new_coins, new_player_pos)
+        coin_dist_old = coin_distance(old_field, new_coins, old_player_pos)
+        coin_dist_new = coin_distance(new_field, new_coins, new_player_pos)
 
-        old_max = np.max(coin_old[0:4])
-        new_max = np.max(coin_new[0:4])
-
-        # check if agent moved closer to coin
-        if new_max > old_max:
+        if coin_dist_old > coin_dist_new:
             events.append(COIN_POS)
-        elif new_max < old_max:
+        elif coin_dist_old < coin_dist_new:
             events.append(COIN_NEG)
 
         #### bomb evasion rewards ####
@@ -130,6 +128,16 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
             events.append(BOMB_POS)
         if bomb_new[4] > bomb_old[4]:
             events.append(BOMB_NEG)
+
+
+        #### Crate finder rewards ####
+        crate_dist_old = crate_distance(old_field, old_player_pos)
+        crate_dist_new = crate_distance(new_field, new_player_pos)
+
+        if crate_dist_old > crate_dist_new:
+            events.append(CRATE_POS)
+        elif crate_dist_old < crate_dist_new:
+            events.append(CRATE_NEG)
 
     #### N-step Q-Learning ####
 
@@ -326,8 +334,10 @@ def reward_from_events(self, events: List[str]) -> int:
         e.WAITED: -0.5,
         COIN_POS: .5,
         COIN_NEG: -.5,
-        BOMB_POS: .1,
-        BOMB_NEG: -.1
+        BOMB_POS: .3,
+        BOMB_NEG: -.3,
+        CRATE_POS: 0.1,
+        CRATE_NEG: -0.1
     }
     reward_sum = 0
     for event in events:
