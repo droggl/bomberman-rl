@@ -30,6 +30,12 @@ BOMB_POS = "BOMB_POS"
 BOMB_NEG = "BOMB_NEG"
 CRATE_NEG = "CRATE_NEG"
 CRATE_POS = "CRATE_POS"
+DROPPED_BOMB_NEXT_TO_CRATE = "DROPPED_BOMB_NEXT_TO_CRATE"
+DROPPED_BOMB_DESTROYS_CRATE ="DROPPED_BOMB_DESTROYS_CRATE"
+DROPPED_BOMB_NOT_USEFUL ="DROPPED_BOMD_NOT_USEFUL"
+DROPPED_BOMB_COIN_AVAILABLE = "DROPPED_BOMB_COIN_AVAILABLE"
+DROPPED_BOMB_COIN_NEAR = "DROPPED_BOMB_COIN_NEAR"
+DROPPED_BOMB_COIN_NOT_AVAILABLE = "DROPPED_BOMB_COIN_NOT_AVAILABLE"
 
 
 def setup_training(self):
@@ -138,6 +144,26 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
             events.append(CRATE_POS)
         elif crate_dist_old < crate_dist_new:
             events.append(CRATE_NEG)
+
+        if self_action == "BOMB" and not e.INVALID_ACTION in events:
+
+            x, y = old_player_pos # bomb position
+            # check if bomb next to crate
+            if old_field[x-1,y] or old_field[x,y-1] or old_field[x+1,y] or old_field[x,y+1]:
+                events.append(DROPPED_BOMB_NEXT_TO_CRATE)
+            if crate_potential(old_field, old_player_pos)[0] != 0: # bomb destroyes any crate (TODO destroys enemy)
+                events.append(DROPPED_BOMB_DESTROYS_CRATE)
+            else:
+                events.append(DROPPED_BOMB_NOT_USEFUL)
+
+            # agent should prioritize coin gathering over bomb throwing
+            coin_dist = coin_distance(old_field, old_coins, old_player_pos)
+            if coin_dist == 0:
+                events.append(DROPPED_BOMB_COIN_NOT_AVAILABLE)
+            elif coin_dist < 5:
+                events.append(DROPPED_BOMB_COIN_NEAR)
+            else:
+                events.append(DROPPED_BOMB_COIN_AVAILABLE)
 
     #### N-step Q-Learning ####
 
@@ -337,7 +363,13 @@ def reward_from_events(self, events: List[str]) -> int:
         BOMB_POS: .3,
         BOMB_NEG: -.3,
         CRATE_POS: 0.1,
-        CRATE_NEG: -0.1
+        CRATE_NEG: -0.1,
+        DROPPED_BOMB_NEXT_TO_CRATE: 0.2,
+        DROPPED_BOMB_DESTROYS_CRATE: 0.1,
+        DROPPED_BOMB_NOT_USEFUL: -0.2,
+        DROPPED_BOMB_COIN_AVAILABLE: -0.2,
+        DROPPED_BOMB_COIN_NOT_AVAILABLE: 0.02,
+        DROPPED_BOMB_COIN_NEAR: -0.3
     }
     reward_sum = 0
     for event in events:
