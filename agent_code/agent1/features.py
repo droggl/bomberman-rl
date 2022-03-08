@@ -551,3 +551,57 @@ def cratos(field, player_pos):
         crates[4] = 1
 
     return crates
+
+
+def enemy_potential(field, others, bomb_pos):
+    '''
+    Counts how many enemies are in range of bomb dropped at bomb_pos
+
+    :param field: Board
+    :param others: Status of other players
+    :param player_pos: Bomb position
+    '''
+
+    enemies = 0
+
+    x, y = bomb_pos
+
+    other_pos = []
+    for player in others:
+        other_pos.append(player[3])
+
+    for i in range(1, 1+s.BOMB_POWER):
+        for cur_x, cur_y in ((x-i, y), (x,y-1), (x+1, y), (x, y+1)):
+
+            if field[cur_x, cur_y] != 0:
+                break
+            if (cur_x, cur_y) in other_pos:
+                enemies += 1
+
+    return np.array(enemies / 3).reshape((1))
+
+def enemy_next(field, others, bomb_pos):
+    '''
+    Enemies next to dropped bomb?
+    yes -> return 1,  no -> return 0
+
+    :param field: Board
+    :param others: Status of other players
+    :param player_pos: Bomb position
+    '''
+
+    x, y = bomb_pos
+
+    other_pos = []
+    for player in others:
+        other_pos.append(player[3])
+
+    i = 1
+    for cur_x, cur_y in ((x-i, y), (x,y-1), (x+1, y), (x, y+1)):
+
+        if field[cur_x, cur_y] != 0:
+            break
+        if (cur_x, cur_y) in other_pos:
+            return 1
+
+    return 0
