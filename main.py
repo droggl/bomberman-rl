@@ -9,6 +9,8 @@ from environment import BombeRLeWorld, GUI
 from fallbacks import pygame, LOADED_PYGAME
 from replay import ReplayWorld
 
+import agent_code.agent1.train_params as tparam
+
 ESCAPE_KEYS = (pygame.K_q, pygame.K_ESCAPE)
 
 
@@ -140,6 +142,8 @@ def main(argv = None):
         sub.add_argument("--make-video", const=True, default=False, action='store', nargs='?',
                          help="Make a video from the game")
 
+    play_parser.add_argument("--model", default=False, help="Select the model to use")
+
     args = parser.parse_args(argv)
     if args.command_name == "replay":
         args.no_gui = False
@@ -154,6 +158,11 @@ def main(argv = None):
     # Initialize environment and agents
     if args.command_name == "play":
         agents = []
+
+        if args.model:
+            if args.model == "version1.pt":
+                tparam.FEATURE_LEN = 24
+            tparam.MODEL_NAME = args.model
         if args.train == 0 and not args.continue_without_training:
             args.continue_without_training = True
         if args.my_agent:

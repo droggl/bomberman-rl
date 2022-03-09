@@ -30,6 +30,11 @@ BOMB_POS = "BOMB_POS"
 BOMB_NEG = "BOMB_NEG"
 CRATE_NEG = "CRATE_NEG"
 CRATE_POS = "CRATE_POS"
+DROPPED_BOMB_NEXT_DESTRUCTIVE = "DROPPED_BOMB_NEXT_DESTRUCTIVE"
+DROPPED_BOMB_DESTRUCTIVE ="DROPPED_BOMB_DESTRUCTIVE"
+DROPPED_BOMB_NOT_USEFUL ="DROPPED_BOMD_NOT_USEFUL"
+DROPPED_BOMB_COIN_NEAR = "DROPPED_BOMB_COIN_NEAR"
+DROPPED_BOMB_COIN_NOT_AVAILABLE = "DROPPED_BOMB_COIN_NOT_AVAILABLE"
 
 
 def setup_training(self):
@@ -71,6 +76,7 @@ def setup_training(self):
 
 
     self.defect = stat_recorder("./logs/defect.log", tparam.RESET)
+    self.placement_logger = stat_recorder("./logs/placement.log", tparam.RESET)
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -139,6 +145,27 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         elif crate_dist_old < crate_dist_new:
             events.append(CRATE_NEG)
 
+        if tparam.DROPPED_BOMB_REWARD and self_action == "BOMB" and not e.INVALID_ACTION in events:
+
+            x, y = old_player_pos # bomb position
+            # check if bomb next to crate
+            enemy_potential(old_field, old_others, old_player_pos)[0]
+            if old_field[x-1,y] or old_field[x,y-1] or old_field[x+1,y] or old_field[x,y+1] or enemy_next(old_field, old_others, old_player_pos):
+                events.append(DROPPED_BOMB_NEXT_DESTRUCTIVE)
+            elif crate_potential(old_field, old_player_pos)[0] != 0 or enemy_potential(old_field, old_others, old_player_pos)[0] != 0: # bomb destroyes any crate or possible enemy)
+                events.append(DROPPED_BOMB_DESTRUCTIVE)
+            else:
+                # agent should prioritize coin gathering over undestructive bomb throwing
+                coin_dist = coin_distance(old_field, old_coins, old_player_pos)
+                if 0 < coin_dist < 4:
+                    events.append(DROPPED_BOMB_COIN_NEAR)
+                else:              
+                    events.append(DROPPED_BOMB_NOT_USEFUL)
+                # if coin_dist == 0:
+                #     events.append(DROPPED_BOMB_COIN_NOT_AVAILABLE)
+
+  
+
     #### N-step Q-Learning ####
 
     old_features = state_to_features(old_game_state)
@@ -179,6 +206,26 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     t_0 = time.time() # timing
  
+    # evaluate placement
+    own_score = last_game_state["self"][1]
+    opponents_score = [opponent[1] for opponent in last_game_state["others"]]
+    placement = 4
+    small_reward = 1
+    if own_score != 0:
+        small_reward = 1.1
+        for score in opponents_score:
+            if own_score >= score:
+                placement -= 1
+
+    placement_reward_factor = {
+        1: 4,
+        2: 1.5,
+        3: 1,
+        4: 0.9
+    }
+
+    self.placement_logger.write(f"{placement}, {own_score} {' '.join([str(scr) for scr in opponents_score])}")
+
     #### empty transition buffer ####
 
     last_features = state_to_features(last_game_state)
@@ -251,7 +298,10 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
             action_arr[i] = 5
         
         state_arr[i] = state
-        reward_arr[i] = reward
+        reward_arr[i] = reward 
+
+    if tparam.SPECIAL_REWARD:
+        reward_arr *= placement_reward_factor[placement] * small_reward
 
     # evaluate current estimators for Q(final)
     Q_pred = []
@@ -337,7 +387,12 @@ def reward_from_events(self, events: List[str]) -> int:
         BOMB_POS: .3,
         BOMB_NEG: -.3,
         CRATE_POS: 0.1,
-        CRATE_NEG: -0.1
+        CRATE_NEG: -0.1,
+        DROPPED_BOMB_NEXT_DESTRUCTIVE: 0.2,
+        DROPPED_BOMB_DESTRUCTIVE: 0.1,
+        DROPPED_BOMB_NOT_USEFUL: -0.2,
+        DROPPED_BOMB_COIN_NEAR: -0.3,
+        DROPPED_BOMB_COIN_NOT_AVAILABLE: 0,
     }
     reward_sum = 0
     for event in events:
