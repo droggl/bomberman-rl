@@ -3,6 +3,8 @@
 # Name of the model file
 MODEL_NAME="testing.pt"
 
+DROPPED_BOMB_REWARD = False
+SPECIAL_REWARD = False
 # creates a new model each time if True
 RESET = False
 
