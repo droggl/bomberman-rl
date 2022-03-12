@@ -30,11 +30,10 @@ BOMB_POS = "BOMB_POS"
 BOMB_NEG = "BOMB_NEG"
 CRATE_NEG = "CRATE_NEG"
 CRATE_POS = "CRATE_POS"
-DROPPED_BOMB_NEXT_DESTRUCTIVE = "DROPPED_BOMB_NEXT_DESTRUCTIVE"
-DROPPED_BOMB_DESTRUCTIVE ="DROPPED_BOMB_DESTRUCTIVE"
-DROPPED_BOMB_NOT_USEFUL ="DROPPED_BOMD_NOT_USEFUL"
-DROPPED_BOMB_COIN_NEAR = "DROPPED_BOMB_COIN_NEAR"
-DROPPED_BOMB_COIN_NOT_AVAILABLE = "DROPPED_BOMB_COIN_NOT_AVAILABLE"
+BOMB_DESTRUCTIVE ="BOMB_DESTRUCTIVE"
+BOMB_NEAR_ENEMY = "BOMB_NEAR_ENEMY"
+BOMB_NOT_USEFUL ="BOMD_NOT_USEFUL"
+BOMB_COIN_NEAR = "BOMB_COIN_NEAR"
 
 
 def setup_training(self):
@@ -77,6 +76,10 @@ def setup_training(self):
 
     self.defect = stat_recorder("./logs/defect.log", tparam.RESET)
     self.placement_logger = stat_recorder("./logs/placement.log", tparam.RESET)
+    self.reward_logger = stat_recorder("./logs/reward.log", tparam.RESET)
+    self.defect_acc = 0
+    self.n_acc = 0
+    self.reward_acc = 0
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -109,6 +112,8 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         old_player_pos = old_game_state["self"][3]
         old_others = old_game_state["others"]
 
+        old_other_pos = [other[3] for other in old_others]
+
         new_field = new_game_state["field"]
         new_bombs = new_game_state["bombs"]
         new_explosion_map = new_game_state["explosion_map"]
@@ -117,54 +122,51 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         new_others = new_game_state["others"]
         
         #### Coin finder rewards ####
-        coin_dist_old = coin_distance(old_field, new_coins, old_player_pos)
-        coin_dist_new = coin_distance(new_field, new_coins, new_player_pos)
-
-        if coin_dist_old > coin_dist_new:
-            events.append(COIN_POS)
-        elif coin_dist_old < coin_dist_new:
-            events.append(COIN_NEG)
+        coin_dist_old = object_distance(old_field, old_coins, old_player_pos)
+        coin_dist_new = object_distance(new_field, new_coins, new_player_pos)
+        if len(old_coins) > 0:
+            if coin_dist_old > coin_dist_new:
+                events.append(COIN_POS)
+            elif coin_dist_old < coin_dist_new:
+                events.append(COIN_NEG)
 
         #### bomb evasion rewards ####
         bomb_old = survival_instinct(old_field, old_bombs, old_explosion_map, old_others, old_player_pos)
         bomb_new = survival_instinct(new_field, new_bombs, new_explosion_map, new_others, new_player_pos)
 
         # check if agent went to field with lower danger
-        if bomb_new[4] < bomb_old[4]:
-            events.append(BOMB_POS)
-        if bomb_new[4] > bomb_old[4]:
-            events.append(BOMB_NEG)
+        if len(old_bombs) > 0:
+            if bomb_new[4] < bomb_old[4]:
+                events.append(BOMB_POS)
+            if bomb_new[4] > bomb_old[4]:
+                events.append(BOMB_NEG)
 
 
         #### Crate finder rewards ####
         crate_dist_old = crate_distance(old_field, old_player_pos)
         crate_dist_new = crate_distance(new_field, new_player_pos)
-
+        
         if crate_dist_old > crate_dist_new:
             events.append(CRATE_POS)
         elif crate_dist_old < crate_dist_new:
             events.append(CRATE_NEG)
 
-        if tparam.DROPPED_BOMB_REWARD and self_action == "BOMB" and not e.INVALID_ACTION in events:
 
-            x, y = old_player_pos # bomb position
-            # check if bomb next to crate
-            enemy_potential(old_field, old_others, old_player_pos)[0]
-            if old_field[x-1,y] or old_field[x,y-1] or old_field[x+1,y] or old_field[x,y+1] or enemy_next(old_field, old_others, old_player_pos):
-                events.append(DROPPED_BOMB_NEXT_DESTRUCTIVE)
-            elif crate_potential(old_field, old_player_pos)[0] != 0 or enemy_potential(old_field, old_others, old_player_pos)[0] != 0: # bomb destroyes any crate or possible enemy)
-                events.append(DROPPED_BOMB_DESTRUCTIVE)
+        #### Bomb drop rewards
+        if self_action == "BOMB" and not e.INVALID_ACTION in events:
+            # reward for dropping bomb near crate or enemy
+            if (crate_potential(old_field, old_player_pos)[0] > 0 or
+                0 < object_distance(old_field, old_other_pos, old_player_pos) < 3):
+                for i in range(int(crate_potential(old_field, old_player_pos)[0])):
+                    events.append(BOMB_DESTRUCTIVE)
+                if 0 < object_distance(old_field, old_other_pos, old_player_pos) < 3:
+                    events.append(BOMB_NEAR_ENEMY)
             else:
-                # agent should prioritize coin gathering over undestructive bomb throwing
-                coin_dist = coin_distance(old_field, old_coins, old_player_pos)
-                if 0 < coin_dist < 4:
-                    events.append(DROPPED_BOMB_COIN_NEAR)
-                else:              
-                    events.append(DROPPED_BOMB_NOT_USEFUL)
-                # if coin_dist == 0:
-                #     events.append(DROPPED_BOMB_COIN_NOT_AVAILABLE)
+                events.append(BOMB_NOT_USEFUL)
+            # agent should prioritize coin gathering over undestructive bomb throwing
+            if 0 < coin_dist_old < 5:
+                events.append(BOMB_COIN_NEAR)
 
-  
 
     #### N-step Q-Learning ####
 
@@ -178,11 +180,13 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         # accumulate reward
         gamma = tparam.Q_RATE
         for (f_state, f_action, f_reward) in self.transition_buffer:
-            reward = reward + gamma * f_reward
-            gamma = tparam.Q_RATE * gamma
+            reward += gamma * f_reward
+            gamma *= tparam.Q_RATE
 
         # add to transitions (training set)
         self.transitions.append(N_Transition(state, action, old_features, reward))
+
+    self.reward_acc += reward_from_events(self, events)
 
     # add new state to buffer
     self.transition_buffer.append(Step(old_features, self_action, reward_from_events(self, events)))
@@ -226,6 +230,9 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     self.placement_logger.write(f"{placement}, {own_score} {' '.join([str(scr) for scr in opponents_score])}")
 
+    self.reward_logger.write(str(self.reward_acc) + "\n")
+    self.reward_acc = 0
+
     #### empty transition buffer ####
 
     last_features = state_to_features(last_game_state)
@@ -241,8 +248,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         # accumulate reward
         gamma = tparam.Q_RATE
         for (f_state, f_action, f_reward) in self.transition_buffer:
-            reward = reward + gamma * f_reward
-            gamma = tparam.Q_RATE * gamma
+            reward += gamma * f_reward
+            gamma *= tparam.Q_RATE
 
         # add to transitions (training set)
         self.transitions.append(N_Transition(state, action, last_features, reward))
@@ -300,6 +307,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         state_arr[i] = state
         reward_arr[i] = reward 
 
+    # TODO FIX this does apply the reward to all buffered transitions, not just the ones from the game played
     if tparam.SPECIAL_REWARD:
         reward_arr *= placement_reward_factor[placement] * small_reward
 
@@ -325,15 +333,12 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
 
     #### model performance logging
-    acc = 0
-    count = 0
     for i in range(6):
         mask = (action_arr == i)
-        count = count + sum(mask)
+        self.n_acc += sum(mask)
         if sum(mask) > 0:
             defect = Y[mask] - self.model_current[i].predict(state_arr[mask])
-            acc = acc + np.sum(np.square(defect))
-    self.defect.write(str(acc / count))
+            self.defect_acc += np.sum(np.square(defect))
 
 
     #### Update Q estimators ####
@@ -348,6 +353,11 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     self.episode_number = self.episode_number + 1
 
     if self.episode_number % tparam.CYCLE_TIME == 0:
+        # write model performance data
+        self.defect.write(str(self.defect_acc / self.n_acc))
+        self.defect_acc = 0
+        self.n_acc = 0
+
         self.logger.info("Replacing model.")
 
         # replace current with new and fresh init new
@@ -381,18 +391,17 @@ def reward_from_events(self, events: List[str]) -> int:
         e.KILLED_SELF: -5,
         e.CRATE_DESTROYED: 0.5,
         e.INVALID_ACTION: -1,
-        e.WAITED: -0.5,
-        COIN_POS: .6,
-        COIN_NEG: -.6,
-        BOMB_POS: .3,
-        BOMB_NEG: -.3,
-        CRATE_POS: 0.1,
-        CRATE_NEG: -0.1,
-        DROPPED_BOMB_NEXT_DESTRUCTIVE: 0.2,
-        DROPPED_BOMB_DESTRUCTIVE: 0.1,
-        DROPPED_BOMB_NOT_USEFUL: -0.2,
-        DROPPED_BOMB_COIN_NEAR: -0.3,
-        DROPPED_BOMB_COIN_NOT_AVAILABLE: 0,
+        e.WAITED: -0.3,
+        COIN_POS: .5,
+        COIN_NEG: -.5,
+        BOMB_POS: 1,
+        BOMB_NEG: -1,
+        CRATE_POS: 0.4,
+        CRATE_NEG: -0.4,
+        BOMB_DESTRUCTIVE: 0.3,
+        BOMB_NEAR_ENEMY: 1,
+        BOMB_NOT_USEFUL: -2,
+        BOMB_COIN_NEAR: -2,
     }
     reward_sum = 0
     for event in events:
