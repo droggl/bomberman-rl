@@ -59,9 +59,19 @@ def setup_training(self):
 
         # init current model
         # TODO evaluate init
+        dummy_X = np.zeros(tparam.FEATURE_LEN).reshape(1,-1)
+        dummy_y = np.zeros(1)
+
         self.model_current = []
         for i in range(6):
-            self.model_current.append(ogbr(GBR, tparam.GB_RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE))
+            est = GBR(
+                learning_rate=tparam.GB_RATE, 
+                n_estimators=tparam.N_EST, 
+                max_depth=tparam.MAX_DEPTH
+                )
+            
+            est.fit(dummy_X, dummy_y)
+            self.model_current.append(est)
     # load existing model
     else:
         self.logger.info("Loading model \"{}\" from saved state.".format(tparam.MODEL_NAME))
@@ -71,15 +81,17 @@ def setup_training(self):
     # init new(replacement) model
     self.model_new = []
     for i in range(6):
-        self.model_new.append(ogbr(GBR, tparam.GB_RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE))
+        est = GBR(
+            learning_rate=tparam.GB_RATE, 
+            n_estimators=tparam.N_EST, 
+            max_depth=tparam.MAX_DEPTH
+            )
+        self.model_new.append(est)
 
 
     self.defect = stat_recorder("./logs/defect.log", tparam.RESET)
-    self.placement_logger = stat_recorder("./logs/placement.log", tparam.RESET)
-    self.reward_logger = stat_recorder("./logs/reward.log", tparam.RESET)
     self.defect_acc = 0
     self.n_acc = 0
-    self.reward_acc = 0
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -186,8 +198,6 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         # add to transitions (training set)
         self.transitions.append(N_Transition(state, action, old_features, reward))
 
-    self.reward_acc += reward_from_events(self, events)
-
     # add new state to buffer
     self.transition_buffer.append(Step(old_features, self_action, reward_from_events(self, events)))
 
@@ -209,26 +219,6 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
 
     t_0 = time.time() # timing
- 
-    # evaluate placement
-    own_score = last_game_state["self"][1]
-    opponents_score = [opponent[1] for opponent in last_game_state["others"]]
-    placement = 4
-    small_reward = 1
-    if own_score != 0:
-        small_reward = 1.1
-        for score in opponents_score:
-            if own_score >= score:
-                placement -= 1
-
-    placement_reward_factor = {
-        1: 4,
-        2: 1.5,
-        3: 1,
-        4: 0.9
-    }
-
-    self.placement_logger.write(f"{placement}, {own_score} {' '.join([str(scr) for scr in opponents_score])}")
 
     self.reward_logger.write(str(self.reward_acc) + "\n")
     self.reward_acc = 0
@@ -307,10 +297,6 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         state_arr[i] = state
         reward_arr[i] = reward 
 
-    # TODO FIX this does apply the reward to all buffered transitions, not just the ones from the game played
-    if tparam.SPECIAL_REWARD:
-        reward_arr *= placement_reward_factor[placement] * small_reward
-
     # evaluate current estimators for Q(final)
     Q_pred = []
     for i in range(6):
@@ -347,7 +333,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     for i in range(6):
         mask = (action_arr == i)
         if sum(mask) > 0:
-            self.model_new[i].fit_update(state_arr[mask], Y[mask])
+            self.model_new[i].fit(state_arr[mask], Y[mask])
+            self.model_new[i].set_params(warm_start=True)
 
     # replace current model with new after CYCLE_TIME iterations
     self.episode_number = self.episode_number + 1
@@ -363,7 +350,11 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         # replace current with new and fresh init new
         for i in range(6):
             self.model_current[i] = self.model_new[i]
-            self.model_new[i] = ogbr(GBR, tparam.GB_RATE, n_estimators=tparam.WEAK_N_EST, learning_rate=tparam.WEAK_RATE)
+            self.model_new[i] = GBR(
+                learning_rate=tparam.GB_RATE, 
+                n_estimators=tparam.N_EST, 
+                max_depth=tparam.MAX_DEPTH
+                )
 
     # timing
     t_1 = time.time()

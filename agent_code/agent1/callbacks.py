@@ -39,7 +39,7 @@ def setup(self):
             ...
             # TODO fix this mess
 
-        self.rho_play = 0.2
+        self.rho_play = 0.1
 
         self.timing = stat_recorder("./logs/timing.log")
         self.feature_log = stat_recorder("./logs/features.log")
