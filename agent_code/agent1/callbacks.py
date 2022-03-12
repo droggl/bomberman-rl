@@ -42,6 +42,8 @@ def setup(self):
         self.rho_play = 0.2
 
         self.timing = stat_recorder("./logs/timing.log")
+        self.feature_log = stat_recorder("./logs/features.log")
+        self.q_log = stat_recorder("./logs/q.log")
 
 def act(self, game_state: dict) -> str:
     """
@@ -81,7 +83,9 @@ def act(self, game_state: dict) -> str:
     self.logger.info("Deciding with p = " + np.array_str(p_decision))
 
     if not self.train:
-        self.timing.write("{}, {}\n".format(t_1 - t_0, t_2 - t_0))
+        self.timing.write_list([t_1 - t_0, t_2 - t_0])
+        self.feature_log.write_list(X)
+        self.q_log.write_list(Q_pred)
 
     return np.random.choice(ACTIONS, p=p_decision)
 
@@ -106,27 +110,39 @@ def state_to_features(game_state: dict) -> np.array:
     player_pos = self[3]
     others = game_state["others"]
 
+    other_pos = [other[3] for other in others]
+
 
     channels = []
 
-    # local awareness navigation helper
-    channels.append(traversible(field, bombs, explosion_map, others, player_pos))
-    channels.append(traversible_extended(field, player_pos))
+    ## local awareness navigation helper
+    channels.append(traversible(field, bombs, explosion_map, others,
+        player_pos))                                                        # 4
+    channels.append(traversible_extended(field, player_pos))                # 4
 
-    # self status
-    channels.append(np.array([self[2]]))    # bomb readyness
+    ## self status
+    # bomb status
+    channels.append(np.array([self[2]]))                                    # 1
 
-    # bomb avoidance
-    channels.append(survival_instinct(field, bombs, explosion_map, others, player_pos))
+    ## bomb avoidance
+    channels.append(survival_instinct(field, bombs, explosion_map,
+        others, player_pos))                                                # 6
 
-    # coin finder
-    channels.append(coin_collector3(field, coins, player_pos))
+    ## coin finder
+    channels.append(coin_collector3(field, coins, player_pos))              # 4
+    channels.append(np.array(object_distance(field, coins, 
+        player_pos)).reshape((1)))                                          # 1
 
-    # crate destruction
-    channels.append(crate_finder(field, player_pos))
-    channels.append(crate_potential(field, player_pos))
+    ## crate destruction
+    channels.append(crate_finder(field, player_pos))                        # 4
+    channels.append(np.array(crate_distance(field, 
+        player_pos)).reshape((1)))                                          # 1
+    channels.append(crate_potential(field, player_pos))                     # 1
 
-    # concatenate channels
-    concatenated_channels = np.concatenate(channels)
-    # and return them as a vector
-    return concatenated_channels
+    ## player finder 
+    channels.append(enemy_finder(field, others, player_pos))                # 4
+    channels.append(np.array(object_distance(field, other_pos, 
+        player_pos)).reshape((1)))                                          # 1
+
+    # concatenate channels and return them as a vector
+    return np.concatenate(channels)
