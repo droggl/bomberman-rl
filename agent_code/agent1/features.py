@@ -108,10 +108,6 @@ def survival_instinct(field, bombs, explosion_map, others, player_pos):
     :param explosion_map: Explosion_positions
     :param player_pos: Player position
     """
-    # nothing to do if no bomb present
-    if len(bombs) == 0:
-        return np.zeros(6)
-
     danger = np.full(6, -1)
 
     # danger value for instadeath
@@ -132,21 +128,24 @@ def survival_instinct(field, bombs, explosion_map, others, player_pos):
     )
 
     # bfs to find safety for each neighbour
-    if viable(x+1, y):
-        danger[0] = danger_rating(field, bomb_map, explosion_map, (x+1, y), deadly)
-    if viable(x, y+1):
-        danger[1] = danger_rating(field, bomb_map, explosion_map, (x, y+1), deadly)
-    if viable(x-1, y):
-        danger[2] = danger_rating(field, bomb_map, explosion_map, (x-1, y), deadly)
-    if viable(x, y-1):
-        danger[3] = danger_rating(field, bomb_map, explosion_map, (x, y-1), deadly)
+    if len(bombs) > 0:
+        if viable(x+1, y):
+            danger[0] = danger_rating(field, bomb_map, explosion_map, (x+1, y), deadly)
+        if viable(x, y+1):
+            danger[1] = danger_rating(field, bomb_map, explosion_map, (x, y+1), deadly)
+        if viable(x-1, y):
+            danger[2] = danger_rating(field, bomb_map, explosion_map, (x-1, y), deadly)
+        if viable(x, y-1):
+            danger[3] = danger_rating(field, bomb_map, explosion_map, (x, y-1), deadly)
 
-    # waited
-    danger[4] = danger_rating(field, bomb_map, explosion_map, player_pos, deadly)
+        # waited
+        danger[4] = danger_rating(field, bomb_map, explosion_map, player_pos, deadly)
+    else:
+        danger[4] = 0
 
     # dropped bomb
-    bomb_map = bomb_field(field, bombs + [(player_pos, 4)])
-    danger[5] = danger_rating(field, bomb_map, explosion_map, player_pos, deadly)
+    bomb_map_drop = bomb_field(field, bombs + [(player_pos, 4)])
+    danger[5] = danger_rating(field, bomb_map_drop, explosion_map, player_pos, deadly)
 
     # not viable moves have same danger as staying
     danger[danger == -1] = danger[4]
