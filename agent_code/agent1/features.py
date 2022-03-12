@@ -21,19 +21,19 @@ def bomb_field(field, bombs):
         i = 1
         while i <= s.BOMB_POWER and field[x+i, y] != -1:
             bomb_map[x+i,y] = min(countdown, bomb_map[x+i, y])
-            i = i + 1
+            i += 1
         i = 1
         while i <= s.BOMB_POWER and field[x, y+i] != -1:
             bomb_map[x,y+i] = min(countdown, bomb_map[x, y+i])
-            i = i+1
+            i += 1
         i = 1
         while i <= s.BOMB_POWER and field[x-i, y] != -1:
             bomb_map[x-i,y] = min(countdown, bomb_map[x-i, y])
-            i = i+1
+            i += 1
         i = 1
         while i <= s.BOMB_POWER and field[x, y-i] != -1:
             bomb_map[x,y-i] = min(countdown, bomb_map[x, y-i])
-            i = i+1
+            i += 1
 
     return bomb_map
 
@@ -56,14 +56,15 @@ def danger_rating(field, bomb_map, explosion_map, start_pos, deadly):
         parents = np.full((width, heigth), -1)
         # setup BFS FIFO
         q = Queue()
-        q.put((start_pos, 1))
+        q.put((start_pos, 0))
 
         shortest_dist = deadly
 
         while not q.empty():
             (pos, dist) = q.get()
             # limit search depth
-            if dist > s.BOMB_TIMER + 1:
+            if dist > s.BOMB_TIMER:
+                shortest_dist = 0
                 break
             # already visited
             if parents[pos] > -1:
@@ -71,13 +72,13 @@ def danger_rating(field, bomb_map, explosion_map, start_pos, deadly):
             parents[pos] = 0
             # found safe field
             if bomb_map[pos] == 10:
-                shortest_dist = dist - 1
+                shortest_dist = dist
                 break
 
             viable = lambda x, y: (
                 field[x, y] == 0 and        # field does not contain wall or crate
-                (bomb_map[x, y] > dist or   # not exploded yet
-                bomb_map[x, y] < dist - 1   # already faded
+                (bomb_map[x, y] > dist + 1 or   # not exploded yet
+                bomb_map[x, y] < dist   # already faded
                 )
             )
 
@@ -108,6 +109,9 @@ def survival_instinct(field, bombs, explosion_map, others, player_pos):
     :param player_pos: Player position
     """
     # nothing to do if no bomb present
+    if len(bombs) == 0:
+        return np.zeros(6)
+
     danger = np.full(6, -1)
 
     # danger value for instadeath
@@ -165,39 +169,41 @@ def crate_potential(field, player_pos):
     i = 1
     while i <= s.BOMB_POWER and field[x+i, y] != -1:
         if field[x+i, y] == 1:
-            crates = crates + 1
-        i = i+1
+            crates += 1
+        i +=1
     i = 1
     while i <= s.BOMB_POWER and field[x, y+i] != -1:
         if field[x, y+i] == 1:
-            crates = crates + 1
-        i = i+1
+            crates += 1
+        i += 1
     i = 1
     while i <= s.BOMB_POWER and field[x-i, y] != -1:
         if field[x-i, y] == 1:
-            crates = crates + 1
-        i = i+1
+            crates += 1
+        i += 1
     i = 1
     while i <= s.BOMB_POWER and field[i, y-i] != -1:
         if field[x, y-i] == 1:
-            crates = crates + 1
-        i = i+1
+            crates += 1
+        i += 1
 
     # normalize
     return np.array(crates / 4 / s.BOMB_POWER).reshape((1))
 
 
-def coin_distance(field, coins, pos):
+def object_distance(field, objects, pos):
     """
-    Distance to nearest reachable coin. 0 if no coin reachable.
+    Distance to nearest reachable object in objects list. 
+    0 if none reachable.
     Pathfinding does ignore bombs and other players.
 
-    Auxiliary for coin_collector2().
-
     :param field: Board
-    :param coins: Coin positions
+    :param coins: Objects positions
     :param player_pos: Start position
     """
+    if len(objects) == 0:
+        return 0
+
     distance = 0
 
     # setup parent matrix
@@ -220,7 +226,7 @@ def coin_distance(field, coins, pos):
         parents[pos] = 0
 
         # found coin
-        if pos in coins:
+        if pos in objects:
             distance = dist
             break
 
@@ -237,11 +243,12 @@ def coin_distance(field, coins, pos):
 
     return distance
 
+
 def coin_collector3(field, coins, player_pos):
     """
     Feature to find coins.
 
-    One value for each direction, 1 if going there reduces distance to crate and 0 else.
+    One value for each direction, 1 if going there reduces distance to coin and 0 else.
 
     :param field: Board
     :param coins: Coin positions
@@ -260,16 +267,16 @@ def coin_collector3(field, coins, player_pos):
 
     # bfs to find nearest for each neighbour
     if viable(x+1, y):
-        distance[0] = coin_distance(field, coins, (x+1, y))
+        distance[0] = object_distance(field, coins, (x+1, y))
     if viable(x, y+1):
-        distance[1] = coin_distance(field, coins, (x, y+1))
+        distance[1] = object_distance(field, coins, (x, y+1))
     if viable(x-1, y):
-        distance[2] = coin_distance(field, coins, (x-1, y))
+        distance[2] = object_distance(field, coins, (x-1, y))
     if viable(x, y-1):
-        distance[3] = coin_distance(field, coins, (x, y-1))
+        distance[3] = object_distance(field, coins, (x, y-1))
     
     # distance to nearest coin from current
-    curr_dist = coin_distance(field, coins, player_pos)
+    curr_dist = object_distance(field, coins, player_pos)
 
     to_coin = np.zeros(4)
 
@@ -283,7 +290,7 @@ def coin_collector3(field, coins, player_pos):
 def coin_collector2(field, coins, player_pos):
     """
     Feature to find coins.
-    One value for each direction.
+    One value for each direction, inversely proportional to range to nearest coin and 0 if no coin is found.
 
     :param field: Board
     :param coins: Coin positions
@@ -296,13 +303,13 @@ def coin_collector2(field, coins, player_pos):
     # BFS for shortest path to coin if coin exists
     if len(coins) != 0:
         if field[x+1,y] == 0:
-            coin_rating[0] = coin_distance(field, coins, (x+1, y))
+            coin_rating[0] = object_distance(field, coins, (x+1, y))
         if field[x,y+1] == 0:
-            coin_rating[1] = coin_distance(field, coins, (x, y+1))
+            coin_rating[1] = object_distance(field, coins, (x, y+1))
         if field[x-1,y] == 0:
-            coin_rating[2] = coin_distance(field, coins, (x-1, y))
+            coin_rating[2] = object_distance(field, coins, (x-1, y))
         if field[x,y-1] == 0:
-            coin_rating[3] = coin_distance(field, coins, (x, y-1))
+            coin_rating[3] = object_distance(field, coins, (x, y-1))
 
     # TODO evaluate whether 1 / dist is a good idea
     coin_rating[coin_rating != 0] = 1 / coin_rating[coin_rating != 0]
@@ -315,7 +322,6 @@ def coin_collector(field, coins, player_pos):
     Feature designed to help collecting coins.
 
     One value for each direction: 1 if direction on shortest path to coin and 0 else.
-    See also coin_distance().
 
     :param field: Board
     :param coins: Coin positions
@@ -415,8 +421,9 @@ def traversible(field, bombs, explosion_map, others, player_pos):
 def traversible_extended(field, player_pos):
     """
     Feature informing whether additional fields are contain wall/crate or not.
-    Works same as traversible(), but contains more fields.
-    1 = yes, 0 = no
+    Designed to work together with traversible(), adding additional fields.
+
+    Note weaker traversability condition.
 
     :param field: Board
     :param player_pos: Player position
@@ -522,7 +529,7 @@ def crate_finder(field, player_pos):
     to_crate = np.zeros(4)
 
     for i in range(4):
-        if distance[i] > 0 and distance[i] < curr_dist:
+        if distance[i] < curr_dist:
             to_crate[i] = 1
 
     return to_crate
@@ -553,6 +560,51 @@ def cratos(field, player_pos):
     return crates
 
 
+def enemy_finder(field, other_players, player_pos):
+    """
+    Feature to find other players (or run away from them).
+
+    One value for each direction, 1 if going there reduces distance to player and 0 else.
+
+    :param field: Board
+    :param coins: Other player positions
+    :param player_pos: Player pos
+    """
+    if len(other_players) == 0:
+        return np.zeros(4)
+
+    other_pos = [player[3] for player in other_players]
+
+    (x, y) = player_pos
+
+    distance = np.zeros(4)
+
+    viable = lambda x, y: (
+        field[x,y] == 0         # no wall or crate
+    )
+
+    # bfs to find nearest for each neighbour
+    if viable(x+1, y):
+        distance[0] = object_distance(field, other_pos, (x+1, y))
+    if viable(x, y+1):
+        distance[1] = object_distance(field, other_pos, (x, y+1))
+    if viable(x-1, y):
+        distance[2] = object_distance(field, other_pos, (x-1, y))
+    if viable(x, y-1):
+        distance[3] = object_distance(field, other_pos, (x, y-1))
+    
+    # distance to nearest from current
+    curr_dist = object_distance(field, other_pos, player_pos)
+
+    to_other = np.zeros(4)
+
+    for i in range(4):
+        if distance[i] > 0 and distance[i] < curr_dist:
+            to_other[i] = 1
+
+    return to_other
+
+
 def enemy_potential(field, others, bomb_pos):
     '''
     Counts how many enemies are in range of bomb dropped at bomb_pos
@@ -561,24 +613,38 @@ def enemy_potential(field, others, bomb_pos):
     :param others: Status of other players
     :param player_pos: Bomb position
     '''
-
     enemies = 0
 
-    x, y = bomb_pos
+    (x,y) = bomb_pos
 
-    other_pos = []
-    for player in others:
-        other_pos.append(player[3])
+    other_pos = [other[3] for other in others]
 
-    for i in range(1, 1+s.BOMB_POWER):
-        for cur_x, cur_y in ((x-i, y), (x,y-1), (x+1, y), (x, y+1)):
+    # go in each direction and count players
+    i = 1
+    while i <= s.BOMB_POWER and field[x+i, y] != -1:
+        if (x+i, y) in other_pos:
+            enemies += 1
+        i +=1
+    i = 1
+    while i <= s.BOMB_POWER and field[x, y+i] != -1:
+        if (x, y+1) in other_pos:
+            enemies += 1
+        i += 1
+    i = 1
+    while i <= s.BOMB_POWER and field[x-i, y] != -1:
+        if (x-1, y) in other_pos:
+            enemies += 1
+        i += 1
+    i = 1
+    while i <= s.BOMB_POWER and field[i, y-i] != -1:
+        if (x, y-1) in other_pos:
+            enemies += 1
+        i += 1
 
-            if field[cur_x, cur_y] != 0:
-                break
-            if (cur_x, cur_y) in other_pos:
-                enemies += 1
+    # normalize
+    return np.array(enemies).reshape((1))
 
-    return np.array(enemies / 3).reshape((1))
+
 
 def enemy_next(field, others, bomb_pos):
     '''
@@ -600,7 +666,7 @@ def enemy_next(field, others, bomb_pos):
     for cur_x, cur_y in ((x-i, y), (x,y-1), (x+1, y), (x, y+1)):
 
         if field[cur_x, cur_y] != 0:
-            break
+            continue
         if (cur_x, cur_y) in other_pos:
             return 1
 
