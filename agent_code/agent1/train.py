@@ -247,6 +247,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     # number of buffered transitions
     n = len(self.transitions)
+    # print(n)
 
     # wait for buffer to fill
     if tparam.BUFFER_CLEAR and n < tparam.TRANSITION_BUFFER_SIZE:
@@ -374,22 +375,22 @@ def reward_from_events(self, events: List[str]) -> int:
     certain behavior.
     """
     game_rewards = {
-        e.COIN_COLLECTED: 2,
+        e.COIN_COLLECTED: 1,
         e.KILLED_OPPONENT: 5,
         e.KILLED_SELF: -5,
-        e.CRATE_DESTROYED: 0.5,
+        e.CRATE_DESTROYED: 0.1,
         e.INVALID_ACTION: -1,
         e.WAITED: -0.3,
-        COIN_POS: .5,
-        COIN_NEG: -.5,
-        BOMB_POS: 1,
-        BOMB_NEG: -1,
-        CRATE_POS: 0.4,
-        CRATE_NEG: -0.4,
-        BOMB_DESTRUCTIVE: 0.3,
-        BOMB_NEAR_ENEMY: 1,
-        BOMB_NOT_USEFUL: -2,
-        BOMB_COIN_NEAR: -2,
+        COIN_POS: .1,
+        COIN_NEG: -.1,
+        BOMB_POS: 0.2,
+        BOMB_NEG: -0.2,
+        CRATE_POS: 0.1,
+        CRATE_NEG: -0.1,
+        BOMB_DESTRUCTIVE: 0.2,
+        BOMB_NEAR_ENEMY: 0.5,
+        BOMB_NOT_USEFUL: -0.5,
+        BOMB_COIN_NEAR: -0.5,
     }
     reward_sum = 0
     for event in events:

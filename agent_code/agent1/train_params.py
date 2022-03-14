@@ -17,7 +17,7 @@ FEATURE_LEN = 31
 ###### Q Learning parameters ######
 
 # transition buffer size
-TRANSITION_BUFFER_SIZE = 40000
+TRANSITION_BUFFER_SIZE = 20000
 
 # replace buffer for each iteration
 BUFFER_CLEAR = True
