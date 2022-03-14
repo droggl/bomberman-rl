@@ -45,7 +45,7 @@ def setup_training(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
     # Setup an array that will note transition tuples
-    self.transitions = deque(maxlen=tparam.TRANSITION_HISTORY_SIZE)
+    self.transitions = deque(maxlen=tparam.TRANSITION_BUFFER_SIZE)
 
     # Init buffer for n-step Q-Learning
     self.transition_buffer = deque(maxlen=tparam.Q_STEPS)
@@ -220,9 +220,6 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     t_0 = time.time() # timing
 
-    self.reward_logger.write(str(self.reward_acc) + "\n")
-    self.reward_acc = 0
-
     #### empty transition buffer ####
 
     last_features = state_to_features(last_game_state)
@@ -252,7 +249,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     n = len(self.transitions)
 
     # wait for buffer to fill
-    if tparam.BUFFER_CLEAR and n < tparam.TRANSITION_HISTORY_SIZE:
+    if tparam.BUFFER_CLEAR and n < tparam.TRANSITION_BUFFER_SIZE:
         return
 
     # transfer transition queue to numpy
