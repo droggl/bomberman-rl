@@ -19,3 +19,9 @@ class stat_recorder:
         with open(self.logfile, 'a') as file:
             file.write(data)
             file.write('\n')
+
+    def write_list(self, data):
+        with open(self.logfile, 'a') as file:
+            for x in data[:-1]:
+                file.write(str(x) + ", ")
+            file.write(str(data[-1]) + '\n')
