@@ -13,7 +13,6 @@ import events as e
 from .callbacks import state_to_features, ACTIONS
 
 from .features import *
-from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
 import agent_code.agent1.train_params as tparam
 from .stat_recorder import stat_recorder
 
@@ -34,6 +33,7 @@ BOMB_DESTRUCTIVE ="BOMB_DESTRUCTIVE"
 BOMB_NEAR_ENEMY = "BOMB_NEAR_ENEMY"
 BOMB_NOT_USEFUL ="BOMD_NOT_USEFUL"
 BOMB_COIN_NEAR = "BOMB_COIN_NEAR"
+ENEMY_COIN = "ENEMY_COIN"
 
 
 def setup_training(self):
@@ -68,8 +68,8 @@ def setup_training(self):
                 learning_rate=tparam.GB_RATE, 
                 n_estimators=tparam.N_EST, 
                 max_depth=tparam.MAX_DEPTH
-                )
-            
+            )
+
             est.fit(dummy_X, dummy_y)
             self.model_current.append(est)
     # load existing model
@@ -88,7 +88,13 @@ def setup_training(self):
             )
         self.model_new.append(est)
 
+    # init some auxiliary variables
+    self.is_updated = [False] * 6
+    self.new_transitions = 0
 
+
+
+    # logging
     self.defect = stat_recorder("./logs/defect.log", tparam.RESET)
     self.defect_acc = 0
     self.n_acc = 0
@@ -141,6 +147,10 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
                 events.append(COIN_POS)
             elif coin_dist_old < coin_dist_new:
                 events.append(COIN_NEG)
+
+        #### Enemy collected coin penalty
+        if not e.COIN_COLLECTED in events and len(old_coins) > len(new_coins):
+            events.append(ENEMY_COIN)
 
         #### bomb evasion rewards ####
         bomb_old = survival_instinct(old_field, old_bombs, old_explosion_map, old_others, old_player_pos)
@@ -242,16 +252,16 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         self.transitions.append(N_Transition(state, action, last_features, reward))
         last_features = None
 
+    self.new_transitions += last_game_state["step"]
 
     #### prepare training data ####
 
+    # wait for enough new transitions to arrive
+    if self.new_transitions < tparam.BUFFER_SWAP_RATIO * tparam.TRANSITION_BUFFER_SIZE:
+        return
+
     # number of buffered transitions
     n = len(self.transitions)
-    # print(n)
-
-    # wait for buffer to fill
-    if tparam.BUFFER_CLEAR and n < tparam.TRANSITION_BUFFER_SIZE:
-        return
 
     # transfer transition queue to numpy
 
@@ -317,11 +327,13 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
 
     #### model performance logging
+
+    N = self.new_transitions
     for i in range(6):
-        mask = (action_arr == i)
+        mask = (action_arr[-N:] == i)
         self.n_acc += sum(mask)
         if sum(mask) > 0:
-            defect = Y[mask] - self.model_current[i].predict(state_arr[mask])
+            defect = Y[-N:][mask] - self.model_current[i].predict(state_arr[-N:][mask])
             self.defect_acc += np.sum(np.square(defect))
 
 
@@ -333,6 +345,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         if sum(mask) > 0:
             self.model_new[i].fit(state_arr[mask], Y[mask])
             self.model_new[i].set_params(warm_start=True)
+            self.is_updated[i] = True
 
     # replace current model with new after CYCLE_TIME iterations
     self.episode_number = self.episode_number + 1
@@ -347,20 +360,22 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
         # replace current with new and fresh init new
         for i in range(6):
-            self.model_current[i] = self.model_new[i]
-            self.model_new[i] = GBR(
-                learning_rate=tparam.GB_RATE, 
-                n_estimators=tparam.N_EST, 
-                max_depth=tparam.MAX_DEPTH
-                )
+            if self.is_updated[i]:
+                self.model_current[i] = self.model_new[i]
+                self.model_new[i] = GBR(
+                    learning_rate=tparam.GB_RATE, 
+                    n_estimators=tparam.N_EST, 
+                    max_depth=tparam.MAX_DEPTH
+                    )
+
+        self.is_updated = [False] * 6
+
+    # reset new transition counter
+    self.new_transitions = 0
 
     # timing
     t_1 = time.time()
     self.logger.info("Model update (ms): {}".format((t_1-t_0) * 1000))
-
-    # clear transition buffer
-    if tparam.BUFFER_CLEAR:
-        self.transitions.clear()
 
     # Store the model
     with open(tparam.MODEL_NAME, "wb") as file:
@@ -378,6 +393,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.COIN_COLLECTED: 1,
         e.KILLED_OPPONENT: 5,
         e.KILLED_SELF: -5,
+        e.GOT_KILLED: -5,
         e.CRATE_DESTROYED: 0.1,
         e.INVALID_ACTION: -1,
         e.WAITED: -0.3,
@@ -387,10 +403,11 @@ def reward_from_events(self, events: List[str]) -> int:
         BOMB_NEG: -0.2,
         CRATE_POS: 0.1,
         CRATE_NEG: -0.1,
-        BOMB_DESTRUCTIVE: 0.2,
+        BOMB_DESTRUCTIVE: 0.1,
         BOMB_NEAR_ENEMY: 0.5,
-        BOMB_NOT_USEFUL: -0.5,
+        BOMB_NOT_USEFUL: -0.8,
         BOMB_COIN_NEAR: -0.5,
+        ENEMY_COIN: -1
     }
     reward_sum = 0
     for event in events:
