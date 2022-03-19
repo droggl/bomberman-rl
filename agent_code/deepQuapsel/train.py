@@ -153,6 +153,12 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     with open(params.MODELNAME, "wb") as file:
         pickle.dump(self.model.get_weights(), file)
 
+    # Decay epsilon
+    if self.epsilon > params.MIN_EPSILON:
+        self.epsilon *= params.EPSILON_DECAY
+        self.epsilon = max(params.MIN_EPSILON, self.epsilon)
+        self.logger.debug(f"Adjusted epsilon: {self.epsilon}")
+
 
 def reward_from_events(self, events: List[str]) -> int:
     """
