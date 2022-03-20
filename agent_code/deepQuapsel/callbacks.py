@@ -2,6 +2,7 @@ import os
 import pickle
 import random
 from time import time
+
 from agent_code.deepQuapsel.stat_recorder import stat_recorder
 
 import agent_code.deepQuapsel.dql_params as params
@@ -81,8 +82,11 @@ def act(self, game_state: dict) -> str:
 
         t2 = time()
         predictions = self.target_model.predict(np.array(features).reshape(-1, *features.shape))[0]
-        self.logger.debug(f"Deciding by argmax from {predictions}")
-        action_index = np.argmax(predictions)
+        self.logger.debug(f"Q values: {predictions}")
+        p_decision = np.exp(predictions / params.RHO_PLAY)
+        p_decision = p_decision / np.sum(p_decision)
+        self.logger.info("Deciding with p = " + np.array_str(p_decision))
+        action_index = np.random.choice(range(6), p=p_decision)
 
         if params.ROTATION_ENABLED: # Rotate action clockwise by 90° * self.rotation
             temp = action_index
