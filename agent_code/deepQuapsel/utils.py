@@ -43,12 +43,12 @@ class ModifiedTensorBoard(TensorBoard):
 def create_dql_model():
     model = Sequential()
 
-    model.add(Conv2D(34, 3, input_shape=params.FEATURE_SHAPE))
+    model.add(Conv2D(32, 1, input_shape=params.REDUCED_FEATURE_SHAPE))
     model.add(Activation('relu'))
     model.add(MaxPooling2D(pool_size=(2, 2)))
     model.add(Dropout(0.2)) # dropout 20%
 
-    model.add(Conv2D(34, 3)) 
+    model.add(Conv2D(32, 1)) 
     model.add(Activation('relu'))
     model.add(MaxPooling2D(pool_size=(2, 2)))
     model.add(Dropout(0.2))

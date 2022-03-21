@@ -149,9 +149,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         self.target_model.set_weights(self.model.get_weights())
         self.update_counter = 0
 
-    # Store the model
-    with open(params.MODELNAME, "wb") as file:
-        pickle.dump(self.model.get_weights(), file)
+        # Store the model
+        self.model.save_weights(params.MODELNAME)
 
     # Decay epsilon
     if self.epsilon > params.MIN_EPSILON:
