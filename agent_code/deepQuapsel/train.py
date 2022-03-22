@@ -7,6 +7,7 @@ import agent_code.deepQuapsel.dql_params as params
 import random
 
 import numpy as np
+from agent_code.deepQuapsel.stat_recorder import stat_recorder
 from agent_code.deepQuapsel.utils import ModifiedTensorBoard
 
 import events as e
@@ -39,8 +40,10 @@ def setup_training(self):
     self.transitions = deque(maxlen=params.TRANSITION_HISTORY_SIZE)
     self.tensorboard = ModifiedTensorBoard(log_dir="logs/{}-{}".format(params.MODELNAME, int(time.time())))
 
-    self.update_counter = 0
+    self.reward_logger = stat_recorder("./logs/reward.log")
 
+    self.update_counter = 0
+    self.episode_reward = []
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -62,19 +65,11 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     """
     self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
 
-
-    # Idea: Add your own events to hand out rewards
-    # if ...:
-    #     events.append(PLACEHOLDER_EVENT)
-
-    if params.ROTATION_ENABLED:
-        # Rotate action left by 90° * self.rotation
-        action_idx = ACTIONS.index(self_action)        
-        rot_action_idx = (action_idx - self.rotation) % 4 if action_idx < 4 else action_idx
-        self_action = ACTIONS[rot_action_idx]
+    current_reward = reward_from_events(self, events)
+    self.reward_logger.write(str(current_reward))
 
     # state_to_features is defined in callbacks.py
-    self.transitions.append(Transition(state_to_features(old_game_state, self.rotation), self_action, state_to_features(new_game_state, self.rotation), reward_from_events(self, events)))
+    self.transitions.append(Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), current_reward))
 
     if len(self.transitions) < params.MIN_TRANSITIONS_SIZE:
         return
@@ -133,13 +128,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     self.tensorboard.step += 1
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
 
-    if params.ROTATION_ENABLED:
-        # Rotate action left by 90° * self.rotation
-        action_idx = ACTIONS.index(last_action)
-        rot_action_idx = (action_idx - self.rotation) % 4 if action_idx < 4 else action_idx
-        last_action = ACTIONS[rot_action_idx]
-
-    self.transitions.append(Transition(state_to_features(last_game_state, self.rotation), last_action, state_to_features(None, self.rotation), reward_from_events(self, events)))
+    self.transitions.append(Transition(state_to_features(last_game_state), last_action, state_to_features(None), reward_from_events(self, events)))
 
     # Update target network counter every episode
     self.update_counter += 1
@@ -151,6 +140,19 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
         # Store the model
         self.model.save_weights(params.MODELNAME)
+
+    # Append episode reward to a list and log stats (every given number of episodes)
+    # AGGREGATE_STATS_EVERY = 50  # episodes
+    # ep_rewards.append(episode_reward)
+    # if not episode % AGGREGATE_STATS_EVERY or episode == 1:
+    #     average_reward = sum(ep_rewards[-AGGREGATE_STATS_EVERY:])/len(ep_rewards[-AGGREGATE_STATS_EVERY:])
+    #     min_reward = min(ep_rewards[-AGGREGATE_STATS_EVERY:])
+    #     max_reward = max(ep_rewards[-AGGREGATE_STATS_EVERY:])
+    #     agent.tensorboard.update_stats(reward_avg=average_reward, reward_min=min_reward, reward_max=max_reward, epsilon=epsilon)
+
+    #     # Save model, but only when min reward is greater or equal a set value
+    #     if average_reward >= MIN_REWARD:
+    #         agent.model.save(f'models/{MODEL_NAME}__{max_reward:_>7.2f}max_{average_reward:_>7.2f}avg_{min_reward:_>7.2f}min__{int(time.time())}.model')
 
     # Decay epsilon
     if self.epsilon > params.MIN_EPSILON:
@@ -167,12 +169,12 @@ def reward_from_events(self, events: List[str]) -> int:
     certain behavior.
     """
     game_rewards = {
-        e.COIN_COLLECTED: 2,
-        e.KILLED_OPPONENT: 5,
-        e.KILLED_SELF: -5,
-        e.CRATE_DESTROYED: 0.5,
+        e.COIN_COLLECTED: 1,
+        e.KILLED_OPPONENT: 1,
+        e.KILLED_SELF: -1,
+        e.CRATE_DESTROYED: 0.15,
         e.INVALID_ACTION: -1,
-        e.WAITED: -0.3,
+        e.WAITED: -0.2,
     }
     reward_sum = 0
     for event in events:

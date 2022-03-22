@@ -41,21 +41,21 @@ class ModifiedTensorBoard(TensorBoard):
 
 
 def create_dql_model():
-    model = Sequential()
+    model = Sequential(
+        [
+            Conv2D(32, 1, input_shape=params.FEATURE_SHAPE),
+            Activation('relu'),
+            MaxPooling2D(pool_size=(2, 2)),
+            Dropout(0.2), # dropout 20%
+            Conv2D(32, 1),
+            Activation('relu'),
+            MaxPooling2D(pool_size=(2, 2)),
+            Dropout(0.2),
+            Flatten(),  # converts 3D feature maps to 1D feature vectors
+            Dense(64),
+            Dense(6, activation='linear') # output layer with action index as output
+        ]
+    )
 
-    model.add(Conv2D(32, 1, input_shape=params.REDUCED_FEATURE_SHAPE))
-    model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.2)) # dropout 20%
-
-    model.add(Conv2D(32, 1)) 
-    model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.2))
-
-    model.add(Flatten())  # converts 3D feature maps to 1D feature vectors
-    model.add(Dense(64))
-
-    model.add(Dense(6, activation='linear')) # output layer with action index as output
     model.compile(loss="mse", optimizer=tf.compat.v1.train.AdamOptimizer(learning_rate=0.001), metrics=['accuracy'])
     return model

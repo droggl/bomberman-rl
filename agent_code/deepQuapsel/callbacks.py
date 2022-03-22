@@ -35,7 +35,6 @@ def setup(self):
     np.random.seed(1)
 
     self.timing = stat_recorder("./logs/timing.log")
-    self.rotation_logger = stat_recorder("./logs/rotation.log")
 
     self.epsilon = params.EPSILON_START
 
@@ -46,6 +45,7 @@ def setup(self):
     else:
         self.logger.info("Loading model weights from saved state.")
         self.model.load_weights(params.MODELNAME)
+    self.logger.info(self.model.summary())
     self.target_model.set_weights(self.model.get_weights())
 
 
@@ -59,32 +59,19 @@ def act(self, game_state: dict) -> str:
     :return: The action to take as a string.
     """
 
-    
-    # If start of the round: save rotation into self.rotation as self.rotation * 90° counterclockwise
-    if game_state["step"] == 1:
-        self.rotation = 0
-        if params.ROTATION_ENABLED:
-            starting_pos_to_rotation = {
-                (1,1): 0,
-                (1,15): 1,
-                (15,15): 2,
-                (15,1): 3
-            }
-            self.rotation = starting_pos_to_rotation[game_state["self"][3]]
-
     if self.train and random.random() < self.epsilon:
         self.logger.debug("Choosing action purely at random.")
         # 80%: walk in any direction. 10% wait. 10% bomb.
         action_index = np.random.choice(range(6), p=[.2, .2, .2, .2, .1, .1])
     else:
         t1 = time()
-        features = state_to_features(game_state, self.rotation)
+        features = state_to_features(game_state)
 
         if params.TIMING_FEATURES:
             self.timing.write(f"state to features: {round((time()-t1) * 1000,3)}ms")
 
         t2 = time()
-        q_values = self.target_model.predict(np.array(features).reshape(-1, *features.shape))[0]
+        q_values = self.model.predict(np.array(features).reshape(-1, *features.shape))[0]
         self.logger.debug(f"Q values: {q_values}")
         # Deciding by argmax
         action_index = np.argmax(q_values)
@@ -94,11 +81,6 @@ def act(self, game_state: dict) -> str:
         # self.logger.info("Deciding with p = " + np.array_str(p_decision))
         # action_index = np.random.choice(range(6), p=p_decision)
 
-        if params.ROTATION_ENABLED: # Rotate action clockwise by 90° * self.rotation
-            temp = action_index
-            action_index = (action_index + self.rotation) % 4 if action_index < 4 else action_index
-            self.rotation_logger.write(f"Rotation: {self.rotation}, ACTION: {ACTIONS[temp]}, ROT_ACTION: {ACTIONS[action_index]}")
-
         if params.TIMING_PREDICT:
             self.timing.write(f"predict: {round((time()-t2) * 1000)}ms")
 
@@ -106,76 +88,87 @@ def act(self, game_state: dict) -> str:
 
 
 
-def state_to_features(game_state: dict, rotation) -> np.array:
+def state_to_features(game_state: dict) -> np.array:
     """
     Converts the game state to the input of your model, i.e.
     a feature vector.
 
     :param game_state:  A dictionary describing the current game board.
-    :return: np.array of 17x17x8: last dimension maps as follows:
-        0: free             [0, 1]
-        1: player           [0, 1]
-        2: coins            [0, 1]
-        3: crates           [0, 1]
-        4: bombs            [0.25, 0.5, 0.75, 1]
-        5: explosion map    [0, 1]
-        6: stone walls      [0, 1]
-        7: other players    [0, 1]
+    :return: np.array of 17x17x4: last dimension maps as follows:       possible values:
+        0: free (0), crates (0.5), stone walls (1)                      [0, 0.5, 1]
+        1: other players (0.5) + player (1)                             [0, 0.5, 1]
+        2: coins (1)                                                    [0, 1]
+        3: bombs (0.2, 0.4, 0.6, 0.8) + bomb range + explosions (1)     [0, 0.2, 0.4, 0.6, 0.8, 1]
     """
 
     # This is the dict before the game begins and after it ends
     if game_state is None:
-        return np.zeros(params.REDUCED_FEATURE_SHAPE, dtype=float)
+        return np.zeros(params.FEATURE_SHAPE, dtype=float)
 
     field = game_state["field"]
     bombs = game_state["bombs"]
     explosion_map = game_state["explosion_map"]
     coins = game_state["coins"]
-    self = game_state["self"]
-    player_pos = self[3]
+    player_pos = game_state["self"][3]
     others = game_state["others"]
 
-    transformed_state = np.zeros((17,17,6))
+    transformed_state = np.zeros(params.FEATURE_SHAPE)
 
-    # free tiles
-    result = np.where(field==0)
+    # free tiles automatically
+    # crates
+    result = np.where(field==1)
+    for idx in list(zip(result[0], result[1])):
+        transformed_state[idx + (0,)] = 0.5
+    # stone walls
+    result = np.where(field==-1)
     for idx in list(zip(result[0], result[1])):
         transformed_state[idx + (0,)] = 1
 
     # player position
     transformed_state[player_pos + (1,)] = 1
+    # others
+    for n, c, b, pos in others:
+            transformed_state[pos + (1,)] = 1
 
     # coins
     for pos in coins:
         transformed_state[pos + (2,)] = 1
 
-    # crates
-    result = np.where(field==1)
-    for idx in list(zip(result[0], result[1])):
-        transformed_state[idx + (3,)] = 1
-
-    # bombs
-    timer_to_value = { 3: 0.25, 2: 0.5, 1: 0.75, 0: 1 }
+    # bombs and explosion map
+    transformed_state[:,:,3] = explosion_map
+    timer_to_value = { 3: 0.2, 2: 0.4, 1: 0.6, 0: 0.8 }
     for bomb_pos, timer in bombs:
-        transformed_state[bomb_pos + (4,)] = timer_to_value[timer]
+        x,y = bomb_pos
+        bomb_value = timer_to_value[timer]
+        transformed_state[(x,y,3)] = bomb_value
+        wall_x_pos = False
+        wall_x_neg = False
+        wall_y_pos = False
+        wall_y_neg = False
+        for i in (1,2,3):
+            x_pos, x_neg, y_pos, y_neg = x+i, x-i, y+i, y-i
+            if not wall_x_pos:
+                if transformed_state[x_pos, y, 0] == 1: # if stone wall
+                    wall_x_pos = True
+                elif bomb_value > transformed_state[x_pos, y, 3]:
+                    transformed_state[(x_pos, y, 3)] = bomb_value
+            if not wall_x_neg:
+                if transformed_state[x_neg, y, 0] == 1:# if stone wall
+                    wall_x_neg = True
+                elif bomb_value > transformed_state[x_neg, y, 3]:
+                    transformed_state[x_neg, y, 3] = bomb_value
+            if not wall_y_pos:
+                if transformed_state[x, y_pos, 0] == 1: # if stone wall
+                    wall_y_pos = True
+                elif bomb_value > transformed_state[x, y_pos, 3]: 
+                    transformed_state[x, y_pos,3] = bomb_value
+            if not wall_y_neg:
+                if transformed_state[x, y_neg, 0] == 1: # if stone wall
+                    wall_y_neg = True
+                elif bomb_value > transformed_state[x, y_neg, 3]:
+                    transformed_state[x, y_neg,3] = bomb_value
 
-    # explosion map
-    transformed_state[:,:,5] = explosion_map
-
-    if not params.TRAIN_COIN_HEAVEN:
-
-        # stone walls
-        result = np.where(field==-1)
-        for idx in list(zip(result[0], result[1])):
-            transformed_state[idx + (6,)] = 1
-
-        # others
-        for n, c, b, pos in others:
-            transformed_state[pos + (7,)] = 1
-
-    rot_state = np.rot90(transformed_state, rotation)
-    box = extract_box(rot_state, player_pos)
-    return box
+    return transformed_state
 
 
 def extract_box(state, player_pos, vision=3):
