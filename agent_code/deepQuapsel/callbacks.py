@@ -1,7 +1,10 @@
 import os
 import pickle
 import random
-from time import time
+import time
+
+from scipy import rand
+from agent_code.deepQuapsel.imitator import Imitator
 
 from agent_code.deepQuapsel.stat_recorder import stat_recorder
 
@@ -34,9 +37,14 @@ def setup(self):
     random.seed(1)
     np.random.seed(1)
 
-    self.timing = stat_recorder("./logs/timing.log")
+    self.timing_act_logger = stat_recorder("./logs/timing_act.log")
+    self.action_chosen_by_logger = stat_recorder("./logs/action_chosen_by.log")
+    self.action_chosen_by = np.zeros((3))
 
     self.epsilon = params.EPSILON_START
+    self.imitation_rate = params.IMITATION_RATE
+
+    self.imitator = Imitator()
 
     self.model = create_dql_model()
     self.target_model = create_dql_model() # gets updated every n episodes, used for prediction, determine future q values
@@ -59,33 +67,35 @@ def act(self, game_state: dict) -> str:
     :return: The action to take as a string.
     """
 
-    if self.train and random.random() < self.epsilon:
+    if self.train and random.random() < self.imitation_rate:
+        self.logger.debug("Choosing action by imitating ")
+        action = self.imitator.act(game_state)
+        self.action_chosen_by[0] += 1
+        action_index = ACTIONS.index(action)
+
+
+    elif self.train and random.random() < self.epsilon:
         self.logger.debug("Choosing action purely at random.")
+        self.action_chosen_by[1] += 1
         # 80%: walk in any direction. 10% wait. 10% bomb.
         action_index = np.random.choice(range(6), p=[.2, .2, .2, .2, .1, .1])
     else:
-        t1 = time()
+        self.action_chosen_by[2] += 1
+        t1 = time.time()
         features = state_to_features(game_state)
+        t_features = round(1000 * (time.time() - t1), 2)
 
-        if params.TIMING_FEATURES:
-            self.timing.write(f"state to features: {round((time()-t1) * 1000,3)}ms")
-
-        t2 = time()
+        t2 = time.time()
         q_values = self.model.predict(np.array(features).reshape(-1, *features.shape))[0]
         self.logger.debug(f"Q values: {q_values}")
         # Deciding by argmax
         action_index = np.argmax(q_values)
-        # Deciding by softmax
-        # p_decision = np.exp(q_values / params.RHO_PLAY)
-        # p_decision = p_decision / np.sum(p_decision)
-        # self.logger.info("Deciding with p = " + np.array_str(p_decision))
-        # action_index = np.random.choice(range(6), p=p_decision)
 
-        if params.TIMING_PREDICT:
-            self.timing.write(f"predict: {round((time()-t2) * 1000)}ms")
+        t_prediction = round(1000 * (time.time() - t1), 2)
+        self.timing_act_logger.write_list([t_features, t_prediction])
+
 
     return ACTIONS[action_index]
-
 
 
 def state_to_features(game_state: dict) -> np.array:

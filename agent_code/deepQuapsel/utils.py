@@ -14,6 +14,8 @@ class ModifiedTensorBoard(TensorBoard):
         super().__init__(**kwargs)
         self.step = 1
         self.writer = tf.summary.create_file_writer(self.log_dir)
+        self._train_dir = self.log_dir
+        self._train_step = self.step
         self._log_write_dir = self.log_dir
 
     # Overriding this method to stop creating default log writer
@@ -23,7 +25,8 @@ class ModifiedTensorBoard(TensorBoard):
     # Overrided, saves logs with our step number
     # (otherwise every .fit() will start writing from 0th step)
     def on_epoch_end(self, epoch, logs=None):
-        self.update_stats(**logs)
+        pass
+        # self.update_stats(**logs)
 
     # Overrided
     # We train for one batch only, no need to save anything at epoch end
@@ -37,25 +40,28 @@ class ModifiedTensorBoard(TensorBoard):
     # Custom method for saving own metrics
     # Creates writer, writes custom metrics and closes writer
     def update_stats(self, **stats):
-        self._write_logs(stats, self.step)
+        pass
+        # self._write_logs(stats, self.step)
 
 
 def create_dql_model():
     model = Sequential(
         [
-            Conv2D(32, 1, input_shape=params.FEATURE_SHAPE),
+            Conv2D(32, (4,4), input_shape=params.FEATURE_SHAPE),
             Activation('relu'),
             MaxPooling2D(pool_size=(2, 2)),
             Dropout(0.2), # dropout 20%
-            Conv2D(32, 1),
+
+            Conv2D(32, (4,4)),
             Activation('relu'),
             MaxPooling2D(pool_size=(2, 2)),
             Dropout(0.2),
+
             Flatten(),  # converts 3D feature maps to 1D feature vectors
             Dense(64),
             Dense(6, activation='linear') # output layer with action index as output
         ]
     )
 
-    model.compile(loss="mse", optimizer=tf.compat.v1.train.AdamOptimizer(learning_rate=0.001), metrics=['accuracy'])
+    model.compile(loss="mse", optimizer="adam", metrics=['accuracy'])
     return model

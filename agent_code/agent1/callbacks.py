@@ -41,7 +41,7 @@ def setup(self):
 
         self.rho_play = 0.1
 
-        self.timing = stat_recorder("./logs/timing.log")
+        self.timing_act_logger = stat_recorder("./logs/timing.log")
         self.feature_log = stat_recorder("./logs/features.log")
         self.q_log = stat_recorder("./logs/q.log")
 
@@ -83,7 +83,7 @@ def act(self, game_state: dict) -> str:
     self.logger.info("Deciding with p = " + np.array_str(p_decision))
 
     if not self.train:
-        self.timing.write_list([t_1 - t_0, t_2 - t_0])
+        self.timing_act_logger.write_list([t_1 - t_0, t_2 - t_0])
         self.feature_log.write_list(X)
         self.q_log.write_list(Q_pred)
 
