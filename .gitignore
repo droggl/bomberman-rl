@@ -114,3 +114,6 @@ results/
 
 # VS Code files
 /.vscode
+
+# stats file
+agent_code/agent1/stats.json

@@ -6,8 +6,7 @@ import time
 import numpy as np
 
 from .features import *
-from .online_gradient_boosting import online_gradient_boost_regressor as ogbr
-import agent_code.agent1.train_params as tparam
+from .train_params import *
 from .stat_recorder import stat_recorder
 
 
@@ -31,9 +30,9 @@ def setup(self):
     # if not training
     if not self.train:
         # try to load model
-        if os.path.isfile(tparam.MODEL_NAME):
-            self.logger.info("Loading model \"{}\" from saved state.".format(tparam.MODEL_NAME))
-            with open(tparam.MODEL_NAME, "rb") as file:
+        if os.path.isfile(MODEL_NAME):
+            self.logger.info("Loading model \"{}\" from saved state.".format(MODEL_NAME))
+            with open(MODEL_NAME, "rb") as file:
                 self.model_current = pickle.load(file)
         else:
             ...
@@ -69,7 +68,7 @@ def act(self, game_state: dict) -> str:
     # TODO implement rho annealing
     if self.train:
         # use sofmax with probability 1 - EPSILON
-        if np.random.rand() > tparam.EPSILON:
+        if np.random.rand() > EPSILON:
             p_decision = np.exp(Q_pred / self.rho)
         # otherwise uniform
         else:
