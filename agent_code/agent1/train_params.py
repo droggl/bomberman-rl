@@ -1,7 +1,7 @@
 ####### General training parameters #######
 
 # Name of the model file
-MODEL_NAME="version3.pt"
+MODEL_NAME="model.pt"
 
 # creates a new model each time if True
 RESET = True
@@ -14,10 +14,10 @@ FEATURE_LEN = 31
 ###### Q Learning parameters ######
 
 # transition buffer size
-TRANSITION_BUFFER_SIZE = 20000
+TRANSITION_QUEUE_SIZE = 20000
 
 # how much of the buffer to replace before model update
-BUFFER_SWAP_RATIO = 0.1
+QUEUE_SWAP_RATIO = 0.1
 
 # Q steps (normal Q learning = 1)
 Q_STEPS = 1
@@ -40,10 +40,10 @@ CYCLE_TIME = 1
 ## see sklearn reference
 
 # number of estimators
-N_EST = 200
+N_EST = 80
 
 # learning rate 
 GB_RATE = 0.1
 
 #weak estimator max depth
-MAX_DEPTH = 10
+MAX_DEPTH = 6
