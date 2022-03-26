@@ -9,7 +9,7 @@ from environment import BombeRLeWorld, GUI
 from fallbacks import pygame, LOADED_PYGAME
 from replay import ReplayWorld
 
-import agent_code.agent1.train_params as tparam
+import agent_code.agent_quapsel.train_params as tparam
 
 ESCAPE_KEYS = (pygame.K_q, pygame.K_ESCAPE)
 
@@ -160,8 +160,6 @@ def main(argv = None):
         agents = []
 
         if args.model:
-            if args.model == "version1.pt":
-                tparam.FEATURE_LEN = 24
             tparam.MODEL_NAME = args.model
         if args.train == 0 and not args.continue_without_training:
             args.continue_without_training = True
