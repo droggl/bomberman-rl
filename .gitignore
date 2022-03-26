@@ -114,3 +114,6 @@ results/
 
 # VS Code files
 /.vscode
+
+logs
+models
