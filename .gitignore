@@ -115,5 +115,9 @@ results/
 # VS Code files
 /.vscode
 
+# logs and models
 logs
 models
+
+# stats file
+agent_code/agent1/stats.json
