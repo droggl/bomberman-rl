@@ -4,16 +4,16 @@ import random
 import time
 
 from scipy import rand
-from agent_code.deepQuapsel.imitator import Imitator
+from agent_code.deep_quapsel.imitator import Imitator
 
-from agent_code.deepQuapsel.stat_recorder import stat_recorder
+from agent_code.deep_quapsel.stat_recorder import stat_recorder
 
-import agent_code.deepQuapsel.dql_params as params
+import agent_code.deep_quapsel.dql_params as params
 from keras.models import load_model
 
 import numpy as np
 import tensorflow as tf
-from agent_code.deepQuapsel.utils import create_dql_model
+from agent_code.deep_quapsel.utils import create_dql_model
 
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']

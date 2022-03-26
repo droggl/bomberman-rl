@@ -3,13 +3,13 @@ from collections import namedtuple, deque
 import time
 import pickle
 from typing import List
-import agent_code.deepQuapsel.dql_params as params
+import agent_code.deep_quapsel.dql_params as params
 import random
 
 import numpy as np
-from agent_code.deepQuapsel.features import crate_distance, crate_potential, object_distance, survival_instinct
-from agent_code.deepQuapsel.stat_recorder import stat_recorder
-from agent_code.deepQuapsel.utils import ModifiedTensorBoard
+from agent_code.deep_quapsel.features import crate_distance, crate_potential, object_distance, survival_instinct
+from agent_code.deep_quapsel.stat_recorder import stat_recorder
+from agent_code.deep_quapsel.utils import ModifiedTensorBoard
 
 import events as e
 from .callbacks import state_to_features

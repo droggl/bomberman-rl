@@ -4,7 +4,7 @@ from keras.models import Sequential
 from keras.layers import Dense, Dropout, Conv2D, MaxPooling2D, Activation, Flatten
 import tensorflow as tf
 
-import agent_code.deepQuapsel.dql_params as params
+import agent_code.deep_quapsel.dql_params as params
 
 
 class ModifiedTensorBoard(TensorBoard):
