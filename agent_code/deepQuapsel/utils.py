@@ -45,23 +45,38 @@ class ModifiedTensorBoard(TensorBoard):
 
 
 def create_dql_model():
+    # model = Sequential(
+    #     [
+    #         Conv2D(32, (4,4), input_shape=params.FEATURE_SHAPE),
+    #         Activation('relu'),
+    #         MaxPooling2D(pool_size=(2, 2)),
+    #         Dropout(0.1), # dropout 10%
+
+    #         Conv2D(32, (4,4)),
+    #         Activation('relu'),
+    #         MaxPooling2D(pool_size=(2, 2)),
+    #         Dropout(0.1),
+
+    #         Flatten(),  # converts 3D feature maps to 1D feature vectors
+    #         Dense(64),
+    #         Dense(6, activation='linear') # output layer with action index as output
+    #     ]
+    # )
+
     model = Sequential(
         [
-            Conv2D(32, (4,4), input_shape=params.FEATURE_SHAPE),
+            Conv2D(32, (4,4), input_shape=params.BOX_SHAPE),
             Activation('relu'),
             MaxPooling2D(pool_size=(2, 2)),
-            Dropout(0.2), # dropout 20%
+            Dropout(0.1), # dropout 10%
 
-            Conv2D(32, (4,4)),
-            Activation('relu'),
-            MaxPooling2D(pool_size=(2, 2)),
-            Dropout(0.2),
-
-            Flatten(),  # converts 3D feature maps to 1D feature vectors
-            Dense(64),
+            Flatten(input_shape=params.BOX_SHAPE),
+            Dense(128, activation='linear'),
+            Dense(128, activation='linear'),
             Dense(6, activation='linear') # output layer with action index as output
         ]
     )
 
-    model.compile(loss="mse", optimizer="adam", metrics=['accuracy'])
+    model.compile(loss="mse", optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), metrics=['accuracy'])
+    model.trainable = True
     return model

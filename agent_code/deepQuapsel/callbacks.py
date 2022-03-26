@@ -17,6 +17,12 @@ from agent_code.deepQuapsel.utils import create_dql_model
 
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
+STARTING_POS_TO_ROTATION = {
+    (1,1): 0,
+    (15,1): 1,
+    (15,15): 2,
+    (1,15): 3
+}
 
 
 def setup(self):
@@ -67,6 +73,9 @@ def act(self, game_state: dict) -> str:
     :return: The action to take as a string.
     """
 
+    if game_state["step"] == 1:
+        self.rotation = STARTING_POS_TO_ROTATION[game_state["self"][3]]
+
     if self.train and random.random() < self.imitation_rate:
         self.logger.debug("Choosing action by imitating ")
         action = self.imitator.act(game_state)
@@ -82,7 +91,7 @@ def act(self, game_state: dict) -> str:
     else:
         self.action_chosen_by[2] += 1
         t1 = time.time()
-        features = state_to_features(game_state)
+        features = state_to_features(game_state, self.rotation)
         t_features = round(1000 * (time.time() - t1), 2)
 
         t2 = time.time()
@@ -91,14 +100,20 @@ def act(self, game_state: dict) -> str:
         # Deciding by argmax
         action_index = np.argmax(q_values)
 
+
+        # Rotate action clockwise by 90° * self.rotation
+        action_index = (action_index + self.rotation) % 4 if action_index < 4 else action_index
+
+
         t_prediction = round(1000 * (time.time() - t1), 2)
         self.timing_act_logger.write_list([t_features, t_prediction])
+        self.logger.debug(f"Action chosen: {ACTIONS[action_index]}, rotation: {self.rotation}")
 
 
     return ACTIONS[action_index]
 
 
-def state_to_features(game_state: dict) -> np.array:
+def state_to_features(game_state: dict, rotation) -> np.array:
     """
     Converts the game state to the input of your model, i.e.
     a feature vector.
@@ -113,7 +128,7 @@ def state_to_features(game_state: dict) -> np.array:
 
     # This is the dict before the game begins and after it ends
     if game_state is None:
-        return np.zeros(params.FEATURE_SHAPE, dtype=float)
+        return np.zeros(params.BOX_SHAPE, dtype=float)
 
     field = game_state["field"]
     bombs = game_state["bombs"]
@@ -178,16 +193,21 @@ def state_to_features(game_state: dict) -> np.array:
                 elif bomb_value > transformed_state[x, y_neg, 3]:
                     transformed_state[x, y_neg,3] = bomb_value
 
-    return transformed_state
+    # rotate counterclockwise by rotation * 90°
+    rot_state =  np.rot90(transformed_state.transpose(1,0,2), rotation)
+    return extract_box(rot_state)
 
 
-def extract_box(state, player_pos, vision=3):
+
+def extract_box(state):
     '''
         Extracts box around player of size of vision from first and second dimension of feature matrix
         return value has shape: (2*vision+1, 2*vision+1, ...) e.g. for vision 3 (7, 7, ...)
     '''
 
-    x,y  = player_pos
+    vision = int(params.BOX_SHAPE[0]/2)
+    x,y  = list(zip(*np.where(state[:,:,1]==1)))[0]
+
     x_min = x - vision if x - vision >= 0 else 0
     y_min = y - vision if y - vision >= 0 else 0
     y_max = y_min + 2 * vision + 1

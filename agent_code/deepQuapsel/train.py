@@ -7,6 +7,7 @@ import agent_code.deepQuapsel.dql_params as params
 import random
 
 import numpy as np
+from agent_code.deepQuapsel.features import crate_distance, crate_potential, object_distance, survival_instinct
 from agent_code.deepQuapsel.stat_recorder import stat_recorder
 from agent_code.deepQuapsel.utils import ModifiedTensorBoard
 
@@ -15,17 +16,20 @@ from .callbacks import state_to_features
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
-# This is only an example!
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
-# Hyper parameters -- DO modify
-
-RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
-
-
 # Events
-PLACEHOLDER_EVENT = "PLACEHOLDER"
+COIN_POS = "COIN_POS"
+COIN_NEG = "COIN_NEG"
+BOMB_POS = "BOMB_POS"
+BOMB_NEG = "BOMB_NEG"
+CRATE_NEG = "CRATE_NEG"
+CRATE_POS = "CRATE_POS"
+BOMB_DESTRUCTIVE ="BOMB_DESTRUCTIVE"
+BOMB_NEAR_ENEMY = "BOMB_NEAR_ENEMY"
+BOMB_NOT_USEFUL ="BOMD_NOT_USEFUL"
+BOMB_COIN_NEAR = "BOMB_COIN_NEAR"
 
 
 def setup_training(self):
@@ -38,13 +42,16 @@ def setup_training(self):
     """
 
     self.transitions = deque(maxlen=params.TRANSITION_HISTORY_SIZE)
-    # self.tensorboard = ModifiedTensorBoard(log_dir="logs/{}-{}".format(params.MODELNAME, int(time.time())))
+    self.tensorboard = ModifiedTensorBoard(log_dir=f"logs/{params.MODELNAME}-{int(time.time())}")
 
     self.timing_train_logger = stat_recorder("./logs/timing_train.log")
     self.reward_logger = stat_recorder("./logs/reward.log")
+    self.q_value_logger = stat_recorder("./logs/q_values.log")
 
+    self.episode_count = 0
     self.update_counter = 0
     self.episode_reward = 0
+    self.ep_rewards = []
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -65,13 +72,84 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
     """
 
-    self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
+    if old_game_state is not None and new_game_state is not None:
+
+        old_field = old_game_state["field"]
+        old_bombs = old_game_state["bombs"]
+        old_explosion_map = old_game_state["explosion_map"]
+        old_coins = old_game_state["coins"]
+        old_player_pos = old_game_state["self"][3]
+        old_others = old_game_state["others"]
+
+        old_other_pos = [other[3] for other in old_others]
+
+        new_field = new_game_state["field"]
+        new_bombs = new_game_state["bombs"]
+        new_explosion_map = new_game_state["explosion_map"]
+        new_coins = new_game_state["coins"]
+        new_player_pos = new_game_state["self"][3]
+        new_others = new_game_state["others"]
+
+        #### Coin finder rewards ####
+        coin_dist_old = object_distance(old_field, old_coins, old_player_pos)
+        coin_dist_new = object_distance(new_field, new_coins, new_player_pos)
+        if len(old_coins) > 0:
+            if coin_dist_old > coin_dist_new:
+                events.append(COIN_POS)
+            elif coin_dist_old < coin_dist_new:
+                events.append(COIN_NEG)
+
+        #### bomb evasion rewards ####
+        bomb_old = survival_instinct(old_field, old_bombs, old_explosion_map, old_others, old_player_pos)
+        bomb_new = survival_instinct(new_field, new_bombs, new_explosion_map, new_others, new_player_pos)
+
+        # check if agent went to field with lower danger
+        if len(old_bombs) > 0:
+            if bomb_new[4] < bomb_old[4]:
+                events.append(BOMB_POS)
+            if bomb_new[4] > bomb_old[4]:
+                events.append(BOMB_NEG)
+
+
+        #### Crate finder rewards ####
+        crate_dist_old = crate_distance(old_field, old_player_pos)
+        crate_dist_new = crate_distance(new_field, new_player_pos)
+        
+        if crate_dist_old > crate_dist_new:
+            events.append(CRATE_POS)
+        elif crate_dist_old < crate_dist_new:
+            events.append(CRATE_NEG)
+
+
+        #### Bomb drop rewards
+        if self_action == "BOMB" and not e.INVALID_ACTION in events:
+            # reward for dropping bomb near crate or enemy
+            if (crate_potential(old_field, old_player_pos)[0] > 0 or
+                0 < object_distance(old_field, old_other_pos, old_player_pos) < 3):
+                for i in range(int(crate_potential(old_field, old_player_pos)[0])):
+                    events.append(BOMB_DESTRUCTIVE)
+                if 0 < object_distance(old_field, old_other_pos, old_player_pos) < 3:
+                    events.append(BOMB_NEAR_ENEMY)
+            else:
+                events.append(BOMB_NOT_USEFUL)
+            # agent should prioritize coin gathering over undestructive bomb throwing
+            if 0 < coin_dist_old < 5:
+                events.append(BOMB_COIN_NEAR)
+
+
+        self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
 
     current_reward = reward_from_events(self, events)
     self.episode_reward += current_reward
 
-    # state_to_features is defined in callbacks.py
-    self.transitions.append(Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), current_reward))
+    # Rotate action counterclockwise by self.rotation * 90°
+    action_idx = ACTIONS.index(self_action)
+    rot_action_idx = (action_idx - self.rotation) % 4 if action_idx < 4 else action_idx
+    self_action = ACTIONS[rot_action_idx]
+
+    old_features = state_to_features(old_game_state, self.rotation)
+    new_features = state_to_features(new_game_state, self.rotation)
+    self.transitions.append(Transition(old_features, self_action, new_features, current_reward))
 
     if len(self.transitions) < params.MIN_TRANSITIONS_SIZE:
         return
@@ -106,8 +184,10 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         X.append(current_state)
         y.append(current_qs)
 
+    # self.q_value_logger.write_list(current_qs)
     # Fit on all samples as one batch
     self.model.fit(np.array(X), np.array(y), batch_size=params.SMALLBATCH_SIZE, verbose=0, shuffle=False, callbacks=None)#[self.tensorboard]) # if terminal_state else None)
+
 
     self.timing_train_logger.write(str(round(1000 * (time.time() - t1), 2)))
     # if params.TIMING_TRAIN:
@@ -128,10 +208,13 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     :param self: The same object that is passed to all of your callbacks.
     """
-    # self.tensorboard.step += 1
+    self.episode_count += 1
+    self.tensorboard.step += 1
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
 
-    self.transitions.append(Transition(state_to_features(last_game_state), last_action, state_to_features(None), reward_from_events(self, events)))
+    # old_features = state_to_features(last_game_state, self.rotation)
+    # new_features = state_to_features(None, self.rotation)
+    # self.transitions.append(Transition(old_features, last_action, new_features, reward_from_events(self, events)))
 
     self.action_chosen_by_logger.write_list(np.round(self.action_chosen_by/np.sum(self.action_chosen_by), 2))
     self.action_chosen_by = np.zeros((3))
@@ -150,17 +233,17 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         self.model.save_weights(params.MODELNAME)
 
     # Append episode reward to a list and log stats (every given number of episodes)
-    # AGGREGATE_STATS_EVERY = 50  # episodes
-    # ep_rewards.append(episode_reward)
-    # if not episode % AGGREGATE_STATS_EVERY or episode == 1:
-    #     average_reward = sum(ep_rewards[-AGGREGATE_STATS_EVERY:])/len(ep_rewards[-AGGREGATE_STATS_EVERY:])
-    #     min_reward = min(ep_rewards[-AGGREGATE_STATS_EVERY:])
-    #     max_reward = max(ep_rewards[-AGGREGATE_STATS_EVERY:])
-    #     agent.tensorboard.update_stats(reward_avg=average_reward, reward_min=min_reward, reward_max=max_reward, epsilon=epsilon)
+    AGGREGATE_STATS_EVERY = 50  # episodes
+    self.ep_rewards.append(self.episode_reward)
+    if not self.episode_count % AGGREGATE_STATS_EVERY or self.tensorboard.step == 2:
+        average_reward = sum(self.ep_rewards[-AGGREGATE_STATS_EVERY:])/len(self.ep_rewards[-AGGREGATE_STATS_EVERY:])
+        min_reward = min(self.ep_rewards[-AGGREGATE_STATS_EVERY:])
+        max_reward = max(self.ep_rewards[-AGGREGATE_STATS_EVERY:])
+        self.tensorboard.update_stats(reward_avg=average_reward, reward_min=min_reward, reward_max=max_reward, epsilon=self.epsilon, imitation_rate=self.imitation_rate)
 
-    #     # Save model, but only when min reward is greater or equal a set value
-    #     if average_reward >= MIN_REWARD:
-    #         agent.model.save(f'models/{MODEL_NAME}__{max_reward:_>7.2f}max_{average_reward:_>7.2f}avg_{min_reward:_>7.2f}min__{int(time.time())}.model')
+        # Save model, but only when min reward is greater or equal a set value
+        # if average_reward >= MIN_REWARD:
+        #     agent.model.save(f'models/{MODEL_NAME}__{max_reward:_>7.2f}max_{average_reward:_>7.2f}avg_{min_reward:_>7.2f}min__{int(time.time())}.model')
 
     # Decay epsilon
     if self.epsilon > params.MIN_EPSILON:
@@ -180,11 +263,22 @@ def reward_from_events(self, events: List[str]) -> int:
     game_rewards = {
         e.COIN_COLLECTED: 2,
         e.KILLED_OPPONENT: 5,
-        e.KILLED_SELF: -2,
-        e.CRATE_DESTROYED: 0.3,
-        e.INVALID_ACTION: -0.5,
-        e.WAITED: -0.2,
+        e.KILLED_SELF: -5,
+        e.CRATE_DESTROYED: 0.5,
+        e.INVALID_ACTION: -1,
+        e.WAITED: -0.3,
+        COIN_POS: .5,
+        COIN_NEG: -.5,
+        BOMB_POS: 1,
+        BOMB_NEG: -1,
+        CRATE_POS: 0.4,
+        CRATE_NEG: -0.4,
+        BOMB_DESTRUCTIVE: 0.3,
+        BOMB_NEAR_ENEMY: 1,
+        BOMB_NOT_USEFUL: -1,
+        BOMB_COIN_NEAR: -1,
     }
+
     reward_sum = 0
     for event in events:
         if event in game_rewards:
