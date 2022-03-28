@@ -93,7 +93,7 @@ def setup_training(self):
     self.is_updated = [False] * 6
     self.new_transitions = 0
 
-
+    self.training_num = 0
 
     # logging
     self.defect = stat_recorder("./logs/defect.log", RESET)
@@ -411,8 +411,9 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     self.logger.info("Model update (ms): {}".format((t_1-t_0) * 1000))
 
     # Store the model
-    with open(MODEL_NAME, "wb") as file:
+    with open(f"{MODEL_NAME.split('.')[0]}-{self.training_num}.pt", "wb") as file:
         pickle.dump(self.model_current, file)
+    self.training_num += 1
 
 
 def reward_from_events(self, events: List[str]) -> int:
