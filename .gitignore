@@ -120,4 +120,4 @@ logs
 models
 
 # stats file
-agent_code/agent_quapsel/stats.json
+stats.json
