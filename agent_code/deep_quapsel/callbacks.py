@@ -1,19 +1,14 @@
 import os
-import pickle
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import random
 import time
-
-from scipy import rand
-from agent_code.deep_quapsel.imitator import Imitator
-
-from agent_code.deep_quapsel.stat_recorder import stat_recorder
-
-import agent_code.deep_quapsel.dql_params as params
-from keras.models import load_model
-
 import numpy as np
 import tensorflow as tf
-from agent_code.deep_quapsel.utils import create_dql_model
+
+from .imitator import Imitator
+from .stat_recorder import stat_recorder
+from .utils import create_dql_model
+import agent_code.deep_quapsel.dql_params as params
 
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
@@ -44,16 +39,13 @@ def setup(self):
     np.random.seed(1)
 
     self.timing_act_logger = stat_recorder("./logs/timing_act.log")
-    self.action_chosen_by_logger = stat_recorder("./logs/action_chosen_by.log")
-    self.action_chosen_by = np.zeros((3))
-
-    self.epsilon = params.EPSILON_START
+    self.epsilon = params.EPSILON
     self.imitation_rate = params.IMITATION_RATE
 
     self.imitator = Imitator()
 
     self.model = create_dql_model()
-    self.target_model = create_dql_model() # gets updated every n episodes, used for prediction, determine future q values
+    self.target_model = create_dql_model() # gets updated every params.UPDATE_TARGET episodes, used to determine target Q values
     if (self.train and params.RESET) or not os.path.isfile(params.MODELNAME):
         self.logger.info("Setting up model from scratch.")
     else:
@@ -79,48 +71,48 @@ def act(self, game_state: dict) -> str:
     if self.train and random.random() < self.imitation_rate:
         self.logger.debug("Choosing action by imitating ")
         action = self.imitator.act(game_state)
-        self.action_chosen_by[0] += 1
-        action_index = ACTIONS.index(action)
-
+        return action
 
     elif self.train and random.random() < self.epsilon:
         self.logger.debug("Choosing action purely at random.")
-        self.action_chosen_by[1] += 1
         # 80%: walk in any direction. 10% wait. 10% bomb.
-        action_index = np.random.choice(range(6), p=[.2, .2, .2, .2, .1, .1])
+        return np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .1, .1])
     else:
-        self.action_chosen_by[2] += 1
         t1 = time.time()
         features = state_to_features(game_state, self.rotation)
         t_features = round(1000 * (time.time() - t1), 2)
 
-        t2 = time.time()
         q_values = self.model.predict(np.array(features).reshape(-1, *features.shape))[0]
         self.logger.debug(f"Q values: {q_values}")
-        # Deciding by argmax
-        action_index = np.argmax(q_values)
 
+        if params.SOFTMAX:
+            # Deciding by softmax
+            rho = 0.1
+            p_decision = np.exp(q_values / rho)
+            p_decision = p_decision / np.sum(p_decision)
+            self.logger.info("Deciding with p = " + np.array_str(p_decision))
+            action_index = np.random.choice(range(6), p=p_decision)
+        else:
+            # Deciding by argmax
+            action_index = np.argmax(q_values)
 
         # Rotate action clockwise by 90° * self.rotation
         action_index = (action_index + self.rotation) % 4 if action_index < 4 else action_index
-
 
         t_prediction = round(1000 * (time.time() - t1), 2)
         self.timing_act_logger.write_list([t_features, t_prediction])
         self.logger.debug(f"Action chosen: {ACTIONS[action_index]}, rotation: {self.rotation}")
 
-
-    return ACTIONS[action_index]
+        return ACTIONS[action_index]
 
 
 def state_to_features(game_state: dict, rotation) -> np.array:
     """
-    Converts the game state to the input of your model, i.e.
-    a feature vector.
+    Converts the game state to the input of your model
 
     :param game_state:  A dictionary describing the current game board.
-    :return: np.array of 17x17x4: last dimension maps as follows:       possible values:
-        0: free (0), crates (0.5), stone walls (1)                      [0, 0.5, 1]
+    :return: np.array of 7x7x4: last dimension maps as follows:       possible values:
+        0: stone walls (0), free (0.5), crates (1)                      [0, 0.5, 1]
         1: other players (0.5) + player (1)                             [0, 0.5, 1]
         2: coins (1)                                                    [0, 1]
         3: bombs (0.2, 0.4, 0.6, 0.8) + bomb range + explosions (1)     [0, 0.2, 0.4, 0.6, 0.8, 1]
@@ -128,7 +120,7 @@ def state_to_features(game_state: dict, rotation) -> np.array:
 
     # This is the dict before the game begins and after it ends
     if game_state is None:
-        return np.zeros(params.BOX_SHAPE, dtype=float)
+        return np.zeros(params.FEATURE_SHAPE, dtype=float)
 
     field = game_state["field"]
     bombs = game_state["bombs"]
@@ -137,23 +129,26 @@ def state_to_features(game_state: dict, rotation) -> np.array:
     player_pos = game_state["self"][3]
     others = game_state["others"]
 
-    transformed_state = np.zeros(params.FEATURE_SHAPE)
+    transformed_state = np.zeros(params.FIELD_SHAPE)
 
-    # free tiles automatically
+    # free tiles
+    result = np.where(field==0)
+    for idx in list(zip(result[0], result[1])):
+        transformed_state[idx + (0,)] = 0.5
     # crates
     result = np.where(field==1)
     for idx in list(zip(result[0], result[1])):
-        transformed_state[idx + (0,)] = 0.5
+        transformed_state[idx + (0,)] = 1
     # stone walls
     result = np.where(field==-1)
     for idx in list(zip(result[0], result[1])):
-        transformed_state[idx + (0,)] = 1
+        transformed_state[idx + (0,)] = 0
 
     # player position
     transformed_state[player_pos + (1,)] = 1
     # others
     for n, c, b, pos in others:
-            transformed_state[pos + (1,)] = 1
+        transformed_state[pos + (1,)] = 0.5
 
     # coins
     for pos in coins:
@@ -173,22 +168,22 @@ def state_to_features(game_state: dict, rotation) -> np.array:
         for i in (1,2,3):
             x_pos, x_neg, y_pos, y_neg = x+i, x-i, y+i, y-i
             if not wall_x_pos:
-                if transformed_state[x_pos, y, 0] == 1: # if stone wall
+                if transformed_state[x_pos, y, 0] == 0: # if stone wall
                     wall_x_pos = True
                 elif bomb_value > transformed_state[x_pos, y, 3]:
                     transformed_state[(x_pos, y, 3)] = bomb_value
             if not wall_x_neg:
-                if transformed_state[x_neg, y, 0] == 1:# if stone wall
+                if transformed_state[x_neg, y, 0] == 0:# if stone wall
                     wall_x_neg = True
                 elif bomb_value > transformed_state[x_neg, y, 3]:
                     transformed_state[x_neg, y, 3] = bomb_value
             if not wall_y_pos:
-                if transformed_state[x, y_pos, 0] == 1: # if stone wall
+                if transformed_state[x, y_pos, 0] == 0: # if stone wall
                     wall_y_pos = True
                 elif bomb_value > transformed_state[x, y_pos, 3]: 
                     transformed_state[x, y_pos,3] = bomb_value
             if not wall_y_neg:
-                if transformed_state[x, y_neg, 0] == 1: # if stone wall
+                if transformed_state[x, y_neg, 0] == 0: # if stone wall
                     wall_y_neg = True
                 elif bomb_value > transformed_state[x, y_neg, 3]:
                     transformed_state[x, y_neg,3] = bomb_value
@@ -198,14 +193,13 @@ def state_to_features(game_state: dict, rotation) -> np.array:
     return extract_box(rot_state)
 
 
-
 def extract_box(state):
     '''
-        Extracts box around player of size of vision from first and second dimension of feature matrix
-        return value has shape: (2*vision+1, 2*vision+1, ...) e.g. for vision 3 (7, 7, ...)
+        Extracts box around player of size of params.FEATURE_SHAPE from first and second dimension of feature matrix
+        return value has shape: params.FEATURE_SHAPE
     '''
 
-    vision = int(params.BOX_SHAPE[0]/2)
+    vision = int(params.FEATURE_SHAPE[0]/2)
     x,y  = list(zip(*np.where(state[:,:,1]==1)))[0]
 
     x_min = x - vision if x - vision >= 0 else 0

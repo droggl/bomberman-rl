@@ -102,7 +102,6 @@ def survival_instinct(field, bombs, explosion_map, others, player_pos):
 
     Fields are assigned a danger value, derived from distance to a safe field.
     First 4 values correspond to neighbours, last to field itself.
-    TODO: add additional value for bomb drop action?
 
     :param field: Board
     :param bombs: Bomb positions
@@ -154,41 +153,42 @@ def survival_instinct(field, bombs, explosion_map, others, player_pos):
     return danger / deadly
 
 
-def crate_potential(field, player_pos):
+def crate_and_enemy_potential(field, bomb_pos, others):
     """
-    Counts how many crates a bomb dropped at player_pos would destroy.
+    Counts how many crates and enemies a bomb dropped at player_pos would destroy.
 
     :param field: Board.
     :param player_pos: Player coordinates.
     """
     crates = 0
+    enemies = 0
 
-    (x,y) = player_pos
+    other_pos = []
+    for player in others:
+        other_pos.append(player[3])
+
+    (x,y) = bomb_pos
 
     # go in each direction and count crates
-    i = 1
-    while i <= s.BOMB_POWER and field[x+i, y] != -1:
-        if field[x+i, y] == 1:
-            crates += 1
-        i +=1
-    i = 1
-    while i <= s.BOMB_POWER and field[x, y+i] != -1:
-        if field[x, y+i] == 1:
-            crates += 1
-        i += 1
-    i = 1
-    while i <= s.BOMB_POWER and field[x-i, y] != -1:
-        if field[x-i, y] == 1:
-            crates += 1
-        i += 1
-    i = 1
-    while i <= s.BOMB_POWER and field[i, y-i] != -1:
-        if field[x, y-i] == 1:
-            crates += 1
-        i += 1
+    bomb_range = 1+s.BOMB_POWER
+    bomb_range = 2
 
-    # normalize
-    return np.array(crates / 4 / s.BOMB_POWER).reshape((1))
+    x_neg = lambda x, y, i: (x-i, y)
+    x_pos = lambda x, y, i: (x+i, y)
+    y_neg = lambda x, y, i: (x, y-i)
+    y_pos = lambda x, y, i: (x, y+i)
+
+    for get_xy in (x_neg, x_pos, y_neg, y_pos):
+        for i in range(1, bomb_range):
+            cur_x, cur_y = get_xy(x,y,i)
+            if field[cur_x, cur_y] == -1:
+                break
+            if field[cur_x, cur_y] == 1:
+                crates += 1
+            elif (cur_x, cur_y) in others :
+                enemies += 1
+
+    return crates, enemies
 
 
 def object_distance(field, objects, pos):

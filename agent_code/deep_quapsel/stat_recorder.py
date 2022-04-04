@@ -1,5 +1,4 @@
 from xmlrpc.client import Boolean
-import numpy as np
 import os
 
 class stat_recorder:
